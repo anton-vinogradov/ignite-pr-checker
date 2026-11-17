@@ -39,12 +39,12 @@ class CardColoursPageTest {
     }
 
     @Test
-    void theNoTicketLineOfTheVisaGroupIsMuted() throws Exception {
+    void theStateWordOfAVisaGroupIsMuted() throws Exception {
         Map<String, Map<String, String>> colours = colours();
 
         for (String theme : THEMES) {
             Map<String, String> of = colours.get(theme);
-            assertThat(of.get(".visa-group.muted")).as(theme + ": a rule gives the no-ticket line its own colour").isNotNull()
+            assertThat(of.get(".visa-state")).as(theme + ": a rule gives the group's state its own colour").isNotNull()
                 .isEqualTo(of.get(".muted")).isNotEqualTo(of.get(".visa-group"));
         }
     }

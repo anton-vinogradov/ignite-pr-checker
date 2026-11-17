@@ -13,7 +13,8 @@ public class WebConfig implements WebMvcConfigurer {
     /**
      * What {@link LiveTokenGuard} checks before: GitHub link and unlink, the options, ending other logins, Post to
      * JIRA, Post to PR, restart, update, flush. The guard checks only a POST, so the visa row the page reads asks
-     * TeamCity nothing.
+     * TeamCity nothing. The previews of a visa and of a PR comment are GETs under the login guard alone: they post
+     * nothing, and show the user's own text.
      */
     static final String[] LIVE_TOKEN_ACTIONS = {"/api/github/link", "/api/github/unlink", "/api/auto-visa-all",
         "/api/logins/end", "/api/logins/end-others", "/api/visa", "/api/client/visa", "/api/pr-comment",
@@ -36,6 +37,8 @@ public class WebConfig implements WebMvcConfigurer {
                 "/api/flush-caches", "/api/delta", "/api/causes", "/api/progress", "/api/pending",
                 "/api/settling", "/api/logins", "/api/logins/end", "/api/logins/end-others");
         registry.addInterceptor(auth).addPathPatterns("/api/pr-tests", "/api/pr-title", "/api/pr-comment");
+        registry.addInterceptor(auth).addPathPatterns("/api/visa/preview", "/api/pr-comment/preview",
+            "/api/client/visa/preview", "/api/client/pr-comment/preview");
         registry.addInterceptor(auth).addPathPatterns("/api/journal");
         registry.addInterceptor(auth).addPathPatterns("/api/token-expiry");
         registry.addInterceptor(auth).addPathPatterns("/api/language");

@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -73,11 +74,13 @@ public class PostVisaController {
     /**
      * Posts the visa of the RunAll {@code build} of PR {@code pr} to {@code issue}. 412 with {@code need} when the
      * viewer has no JIRA token stored, or JIRA refused it; 409 when the verdict is not final ({@code going}), is not of
-     * the run the page shows ({@code stale}), or the PR title names another ticket or none ({@code ticket}); 502 when
-     * JIRA did not take the visa. Answers with the visa row of the run.
+     * the run the page shows ({@code stale}), the PR title names another ticket or none ({@code ticket}), or the visa
+     * is no longer the text of {@code key}, which {@link #preview} gave with the text the page showed ({@code
+     * changed}); 502 when JIRA did not take the visa. Answers with the visa row of the run.
      */
     @PostMapping("/visa")
     public ResponseEntity<?> post(@RequestParam int pr, @RequestParam long build, @RequestParam String issue,
+        @RequestParam(required = false) String key,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username, HttpServletRequest req) {
         if (!standing.visaButton(username, null, pr, build).jiraReady())
@@ -92,7 +95,7 @@ public class PostVisaController {
             return wrongTicket.get();
 
         StandingVisas.PagePost posted = standing.postVisaFromPage(username, AuthInterceptor.by(req), tcToken, pr,
-            build, issue, verdict.res());
+            build, issue, verdict.res(), key);
 
         return answer(posted, username, null, pr, build, issue);
     }
@@ -104,7 +107,7 @@ public class PostVisaController {
      */
     @PostMapping("/client/visa")
     public ResponseEntity<?> postClient(@RequestParam String repo, @RequestParam int pr, @RequestParam long build,
-        @RequestParam String issue,
+        @RequestParam String issue, @RequestParam(required = false) String key,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username, HttpServletRequest req) {
         ClientSpec spec = projects.require(repo);
@@ -119,14 +122,72 @@ public class PostVisaController {
         if (wrongTicket.isPresent())
             return wrongTicket.get();
 
-        AnalysisResult res = verdict.res();
-        ClientVerdicts.Run run = verdict.run();
-        String body = clientRuns.pageVisaBody(spec, pr, run.buildId(), run.rerunId(), run.suiteName(), run.clientSha(),
-            run.igniteSha(), res);
         StandingVisas.PagePost posted = standing.postClientVisaFromPage(username, AuthInterceptor.by(req),
-            spec.repo(), pr, build, issue, res, body);
+            spec.repo(), pr, build, issue, verdict.res(), clientBody(spec, pr, verdict), key);
 
         return answer(posted, username, spec.repo(), pr, build, issue);
+    }
+
+    /**
+     * The visa a press of Post to JIRA would post to {@code issue} for the RunAll {@code build} of PR {@code pr} now,
+     * as {@code text}, for the page to show before the press, and the {@code key} of that text for the press to send
+     * back. Nothing is posted. Refused as {@link #post} is: without a stored JIRA token, for a verdict that is not
+     * final or not of the run the page shows, for another ticket.
+     */
+    @GetMapping("/visa/preview")
+    public ResponseEntity<?> preview(@RequestParam int pr, @RequestParam long build, @RequestParam String issue,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        if (!standing.visaButton(username, null, pr, build).jiraReady())
+            return noToken();
+
+        Final verdict = igniteVerdict(tcToken, pr, build);
+        if (verdict.refused() != null)
+            return refused(verdict.refused(), "no RunAll build found for PR " + pr);
+
+        Optional<ResponseEntity<?>> wrongTicket = wrongTicket(() -> titles.titleNow(pr), issue);
+        if (wrongTicket.isPresent())
+            return wrongTicket.get();
+
+        return previewed(standing.visaPreview(username, tcToken, pr, build, verdict.res()));
+    }
+
+    /** The visa a press would post for the run of the selected client's suite, as {@link #preview} has it. */
+    @GetMapping("/client/visa/preview")
+    public ResponseEntity<?> previewClient(@RequestParam String repo, @RequestParam int pr, @RequestParam long build,
+        @RequestParam String issue,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        ClientSpec spec = projects.require(repo);
+        if (!standing.visaButton(username, spec.repo(), pr, build).jiraReady())
+            return noToken();
+
+        Final verdict = clientVerdict(tcToken, spec, pr, build);
+        if (verdict.refused() != null)
+            return refused(verdict.refused(), ClientPrsController.NO_RUN);
+
+        Optional<ResponseEntity<?>> wrongTicket = wrongTicket(() -> clientPrs.titleNow(spec, pr), issue);
+        if (wrongTicket.isPresent())
+            return wrongTicket.get();
+
+        return previewed(standing.clientVisaPreview(username, clientBody(spec, pr, verdict)));
+    }
+
+    /**
+     * The answer with the visa's text and its key; the user's JIRA token went away while the visa was composed when
+     * empty.
+     */
+    private static ResponseEntity<?> previewed(Optional<String> text) {
+        return text.<ResponseEntity<?>>map(t -> ResponseEntity.ok(Map.of("text", t, "key", StandingVisas.textKey(t))))
+            .orElseGet(PostVisaController::noToken);
+    }
+
+    /** The visa of a client's run in the words of its automatic visa, without the last line a press adds. */
+    private String clientBody(ClientSpec spec, int pr, Final verdict) {
+        ClientVerdicts.Run run = verdict.run();
+
+        return clientRuns.pageVisaBody(spec, pr, run.buildId(), run.rerunId(), run.suiteName(), run.clientSha(),
+            run.igniteSha(), verdict.res());
     }
 
     /**
@@ -221,11 +282,12 @@ public class PostVisaController {
             case StandingVisas.PagePost.POSTED, StandingVisas.PagePost.EDITED -> ResponseEntity.ok(new VisaRow(
                 new StandingVisas.VisaLine(StandingVisas.VisaLine.POSTED, username, true, posted.issue(),
                     posted.url(), false), standing.visaButton(username, repo, pr, build),
-                StandingVisas.PagePost.EDITED.equals(posted.outcome())));
+                StandingVisas.PagePost.EDITED.equals(posted.outcome()), true));
             case StandingVisas.PagePost.REFUSED -> ResponseEntity.status(412).body(Map.of("error", "JIRA rejected your"
                 + " JIRA token, so the checker dropped it and switched off Visa my runs in JIRA. Save a new token in"
                 + " ⚙.", "need", "jira"));
             case StandingVisas.PagePost.NO_TOKEN -> noToken();
+            case StandingVisas.PagePost.CHANGED -> changed();
             default -> notTaken(posted.status(), issue);
         };
     }
@@ -258,6 +320,15 @@ public class PostVisaController {
     }
 
     /**
+     * The answer to a press whose text is no longer the one the page showed before it. Another press shows the text as
+     * it is now.
+     */
+    static ResponseEntity<?> changed() {
+        return ResponseEntity.status(409).body(Map.of("error", "The text changed after the page showed it to you."
+            + " Press the button again to read it as it is now.", "changed", true));
+    }
+
+    /**
      * The verdict {@code res} of the run the PR page shows, and for a client's PR the {@code run} it is of, null for a
      * RunAll. {@code refused}: why nothing may be posted of it now, null when it may: the PR has no such run ({@link
      * #NONE}), the checker has a newer verdict than the page ({@link #STALE}), runs of the PR can still change it
@@ -280,13 +351,15 @@ public class PostVisaController {
     /**
      * The visa row of a run on the PR page: where its visa stands, see {@link StandingVisas#visaLine}, and what Post
      * to JIRA can do for the viewer. {@code edited}: the visa Post to JIRA just put in edited the viewer's own visa of
-     * the run; null in any other answer.
+     * the run; null in any other answer. {@code current}: whether the viewer's own visa of the run still says what the
+     * verdict says, see {@link StandingVisas#visaCurrent}; null when the checker cannot tell.
      */
     public record VisaRow(@JsonUnwrapped StandingVisas.VisaLine line, @JsonUnwrapped StandingVisas.VisaButton button,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean edited) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean edited,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean current) {
         /** The row the page polls for. */
-        public static VisaRow of(StandingVisas.VisaLine line, StandingVisas.VisaButton button) {
-            return new VisaRow(line, button, null);
+        public static VisaRow of(StandingVisas.VisaLine line, StandingVisas.VisaButton button, Boolean current) {
+            return new VisaRow(line, button, null, current);
         }
     }
 }

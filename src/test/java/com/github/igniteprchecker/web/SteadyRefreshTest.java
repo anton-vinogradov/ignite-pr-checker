@@ -162,7 +162,7 @@ class SteadyRefreshTest {
 
         assertThat(out.get("analyses").asInt()).as("a finished verdict is not asked again").isEqualTo(1);
         assertThat(out.get("runs").asInt()).isEqualTo(1);
-        assertThat(out.get("label").asText()).contains("verdict computed 1h ago");
+        assertThat(out.get("label").asText()).contains("updated 1h ago");
     }
 
     @Test

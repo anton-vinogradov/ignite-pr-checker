@@ -143,9 +143,10 @@ class UnreadTokensPageTest {
             report({ key: say('key-changed'), damaged: say('damaged') });
             """);
 
+        String settings = "<a href=\"/settings?repo=ignite&amp;section=jira\">Settings</a>";
         assertThat(out.get("key").asText())
-            .isEqualTo("Visa: waits for a new JIRA token in ⚙, because the server key was changed");
-        assertThat(out.get("damaged").asText())
-            .isEqualTo("Visa: waits for a new JIRA token in ⚙, because the checker could not read the stored one");
+            .isEqualTo("Visa: waits for a new JIRA token in " + settings + ", because the server key was changed");
+        assertThat(out.get("damaged").asText()).isEqualTo("Visa: waits for a new JIRA token in " + settings
+            + ", because the checker could not read the stored one");
     }
 }

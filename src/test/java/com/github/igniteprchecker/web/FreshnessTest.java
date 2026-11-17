@@ -29,8 +29,8 @@ class FreshnessTest {
             report({ before, after: text() });
             """);
 
-        assertThat(out.get("before").asText()).contains("finished 7 Oct 11:00 (1h ago)", "verdict computed 30s ago");
-        assertThat(out.get("after").asText()).contains("finished 7 Oct 11:00 (3h ago)", "verdict computed 2h ago");
+        assertThat(out.get("before").asText()).contains("finished 7 Oct 11:00 (1h ago)", "updated 30s ago");
+        assertThat(out.get("after").asText()).contains("finished 7 Oct 11:00 (3h ago)", "updated 2h ago");
     }
 
     @Test
@@ -64,7 +64,7 @@ class FreshnessTest {
 
         assertThat(out.get("first").asInt()).isEqualTo(1);
         assertThat(out.get("looked").asInt()).isEqualTo(2);
-        assertThat(out.get("label").asText()).contains("verdict computed").doesNotContain("10m ago");
+        assertThat(out.get("label").asText()).contains("updated").doesNotContain("10m ago");
         assertThat(out.get("later").asInt()).as("a fresh verdict is not polled for").isEqualTo(2);
     }
 
@@ -84,7 +84,7 @@ class FreshnessTest {
 
         assertThat(out.get("whileHidden").asInt()).isEqualTo(2);
         assertThat(out.get("analyses").asInt()).isEqualTo(2);
-        assertThat(out.get("label").asText()).contains("verdict computed 1h ago");
+        assertThat(out.get("label").asText()).contains("updated 1h ago");
     }
 
     @Test

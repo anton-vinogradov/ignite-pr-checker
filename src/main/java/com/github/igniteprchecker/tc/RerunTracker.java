@@ -13,6 +13,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -86,11 +87,16 @@ public class RerunTracker implements SnapshotCache {
      * A run it supersedes is not settled: its verdict would be out of date before it is posted.
      */
     public long newestChainUnderWay(int pr) {
+        return chainUnderWay(pr).map(ActiveRerun::buildId).orElse(0L);
+    }
+
+    /** The chain of {@link #newestChainUnderWay}, with its state and estimates as of the last refresh. */
+    public Optional<ActiveRerun> chainUnderWay(int pr) {
         long now = System.currentTimeMillis();
 
         return tracked.values().stream()
             .filter(t -> t.pr == pr && runAllBuildType.equals(t.buildTypeId) && now - t.lastVerified <= STALE_MS)
-            .mapToLong(t -> t.buildId).max().orElse(0);
+            .max(Comparator.comparingLong(t -> t.buildId)).map(Tracked::seen);
     }
 
     /** Refreshes each active build's state (chains expand to per-suite states); drops finished/gone ones. */
@@ -267,8 +273,7 @@ public class RerunTracker implements SnapshotCache {
         for (Tracked t : tracked.values()) {
             if (now - t.lastVerified > STALE_MS)
                 continue;
-            out.putIfAbsent(t.buildId, new ActiveRerun(t.pr, t.buildTypeId, t.suiteName, t.buildId, t.state, t.webUrl,
-                t.pct, t.leftSec, t.startSec, t.waitedSec, t.elapsedSec));
+            out.putIfAbsent(t.buildId, t.seen());
             for (ActiveRerun kid : t.children)
                 out.putIfAbsent(kid.buildId(), kid);
         }
@@ -335,6 +340,11 @@ public class RerunTracker implements SnapshotCache {
             this.suiteName = suiteName;
             this.buildId = buildId;
             this.webUrl = webUrl;
+        }
+
+        ActiveRerun seen() {
+            return new ActiveRerun(pr, buildTypeId, suiteName, buildId, state, webUrl, pct, leftSec, startSec,
+                waitedSec, elapsedSec);
         }
     }
 

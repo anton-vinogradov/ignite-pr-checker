@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.web;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.github.igniteprchecker.analysis.ClientVerdicts;
 import com.github.igniteprchecker.github.ClientRuns;
 import com.github.igniteprchecker.github.ClientSpec;
@@ -9,6 +10,8 @@ import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.jira.StandingVisas;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -64,35 +67,94 @@ public class PostToPrController {
         this.publicUrl = publicUrl;
     }
 
-    /** What Post to PR can do on the RunAll {@code build} of PR {@code pr}; see {@link PrPost}. */
+    /**
+     * What Post to PR can do on the RunAll {@code build} of PR {@code pr}; see {@link PrPost}. TeamCity is asked who
+     * started the run only while the run has no verdict comment and the checker has an account to post one from; when
+     * it does not say, the row answers without the starter's option.
+     */
     @GetMapping("/pr-comment")
-    public PrPost row(@RequestParam int pr, @RequestParam long build) {
-        return new PrPost(bot(), standing.runCommentUrl(null, pr, build, 0).orElse(null), null);
+    public PrPost row(@RequestParam int pr, @RequestParam long build,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        String bot = bot();
+        String url = standing.runCommentUrl(null, pr, build, 0).orElse(null);
+
+        return new PrPost(bot, url, null,
+            url != null || PrPost.NONE.equals(bot) ? null : option(pr, build, tcToken, username),
+            url == null ? null : runs.commentCurrent(pr, build));
     }
 
     /**
      * What Post to PR can do on the run {@code build} of the selected client's suite for PR {@code pr}.
      * The verdict kept for the PR names the later run of the same commits it counts too, whose story may have
-     * posted the comment.
+     * posted the comment. The row says nothing of the starter's option: the story of a run posts a client's verdict
+     * comment, and the checker's records of options do not tell whether the run has one.
      */
     @GetMapping("/client/pr-comment")
     public PrPost clientRow(@RequestParam String repo, @RequestParam int pr, @RequestParam long build) {
         ClientSpec spec = projects.require(repo);
-        long rerunId = clients.kept(spec, pr).filter(v -> v.run().buildId() == build).map(v -> v.run().rerunId())
-            .orElse(0L);
+        Optional<ClientVerdicts.Verdict> kept = clients.kept(spec, pr).filter(v -> v.run().buildId() == build);
+        long rerunId = kept.map(v -> v.run().rerunId()).orElse(0L);
 
-        return new PrPost(bot(), standing.runCommentUrl(spec.repo(), pr, build, rerunId).orElse(null), null);
+        return new PrPost(bot(), standing.runCommentUrl(spec.repo(), pr, build, rerunId).orElse(null), null, null,
+            standing.commentCurrent(spec.repo(), pr, build, rerunId, kept.map(ClientVerdicts.Verdict::result)));
+    }
+
+    /**
+     * The comment a press of Post to PR would put into PR {@code pr} for the RunAll {@code build} now, as {@code text},
+     * for the page to show before the press, and the {@code key} of that text for the press to send back. Nothing is
+     * posted, and the press is not counted. Refused as {@link #post} is while the checker's account cannot write, or
+     * the verdict is not final or not of the run the page shows.
+     */
+    @GetMapping("/pr-comment/preview")
+    public ResponseEntity<?> preview(@RequestParam int pr, @RequestParam long build,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        String bot = bot();
+        if (!PrPost.READY.equals(bot))
+            return noBot(bot);
+
+        PostVisaController.Final verdict = verdicts.igniteVerdict(tcToken, pr, build);
+        if (verdict.refused() != null)
+            return refused(verdict.refused(), "no RunAll build found for PR " + pr);
+
+        return previewed(standing.commentPreview(username, tcToken, pr, build, verdict.res(), starter(tcToken, build)));
+    }
+
+    /** The comment a press would put in for the run of the selected client's suite, as {@link #preview} has it. */
+    @GetMapping("/client/pr-comment/preview")
+    public ResponseEntity<?> previewClient(@RequestParam String repo, @RequestParam int pr, @RequestParam long build,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        ClientSpec spec = projects.require(repo);
+        String bot = bot();
+        if (!PrPost.READY.equals(bot))
+            return noBot(bot);
+
+        PostVisaController.Final verdict = verdicts.clientVerdict(tcToken, spec, pr, build);
+        if (verdict.refused() != null)
+            return refused(verdict.refused(), ClientPrsController.NO_RUN);
+
+        return previewed(standing.clientCommentPreview(username, spec.repo(), pr, build, verdict.run().rerunId(),
+            clientBody(spec, pr, verdict)));
+    }
+
+    /** The answer with the comment's text and its key. */
+    private static ResponseEntity<?> previewed(String text) {
+        return ResponseEntity.ok(Map.of("text", text, "key", StandingVisas.textKey(text)));
     }
 
     /**
      * Puts the verdict of the RunAll {@code build} of PR {@code pr} into the PR. 409 when the checker's account cannot
      * write ({@code bot}), the verdict is not final ({@code going}) or is not of the run the page shows ({@code
-     * stale}); 503 when its writes wait; 429 when the PR had {@link StandingVisas#PRESSES_PER_PR_HOUR} presses in the
-     * last hour; 502 when GitHub did not take the comment. Answers with what Post to PR can do now, the comment's
-     * address, and whether the press edited the run's comment.
+     * stale}), or the comment is no longer the text of {@code key}, which {@link #preview} gave with the text the page
+     * showed ({@code changed}); 503 when its writes wait; 429 when the PR had {@link
+     * StandingVisas#PRESSES_PER_PR_HOUR} presses in the last hour; 502 when GitHub did not take the comment. Answers
+     * with what Post to PR can do now, the comment's address, and whether the press edited the run's comment.
      */
     @PostMapping("/pr-comment")
     public ResponseEntity<?> post(@RequestParam int pr, @RequestParam long build,
+        @RequestParam(required = false) String key,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username, HttpServletRequest req) {
         String bot = bot();
@@ -104,7 +166,7 @@ public class PostToPrController {
             return refused(verdict.refused(), "no RunAll build found for PR " + pr);
 
         StandingVisas.CommentPost posted = standing.postCommentFromPage(username, AuthInterceptor.by(req), tcToken, pr,
-            build, verdict.res(), starter(tcToken, build));
+            build, verdict.res(), starter(tcToken, build), key);
 
         return answer(posted, pr);
     }
@@ -116,6 +178,7 @@ public class PostToPrController {
      */
     @PostMapping("/client/pr-comment")
     public ResponseEntity<?> postClient(@RequestParam String repo, @RequestParam int pr, @RequestParam long build,
+        @RequestParam(required = false) String key,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username, HttpServletRequest req) {
         ClientSpec spec = projects.require(repo);
@@ -127,14 +190,19 @@ public class PostToPrController {
         if (verdict.refused() != null)
             return refused(verdict.refused(), ClientPrsController.NO_RUN);
 
-        ClientVerdicts.Run run = verdict.run();
-        String login = run.starter() == null ? null : standing.provenGhLogin(run.starter());
         StandingVisas.CommentPost posted = standing.postClientCommentFromPage(username, AuthInterceptor.by(req),
-            spec.repo(), pr, build, run.rerunId(), fromPage -> clientRuns.pageCommentBody(spec, login, pr, run.buildId(),
-                run.rerunId(), run.suiteName(), run.clientSha(), run.igniteSha(), verdict.res(), fromPage,
-                ClientRuns.pageUrl(publicUrl, spec, pr)));
+            spec.repo(), pr, build, verdict.run().rerunId(), verdict.res(), clientBody(spec, pr, verdict), key);
 
         return answer(posted, pr);
+    }
+
+    /** The verdict comment of a client's run by how the run was queued, without the last line a press adds. */
+    private Function<Boolean, String> clientBody(ClientSpec spec, int pr, PostVisaController.Final verdict) {
+        ClientVerdicts.Run run = verdict.run();
+        String login = run.starter() == null ? null : standing.provenGhLogin(run.starter());
+
+        return fromPage -> clientRuns.pageCommentBody(spec, login, pr, run.buildId(), run.rerunId(), run.suiteName(),
+            run.clientSha(), run.igniteSha(), verdict.res(), fromPage, ClientRuns.pageUrl(publicUrl, spec, pr));
     }
 
     /** Whether the checker's account can write to GitHub now; see {@link PrPost#bot}. */
@@ -145,6 +213,23 @@ public class PostToPrController {
             return PrPost.READY;
 
         return github.writeState().pausedUntil() > 0 ? PrPost.PAUSED : PrPost.REFUSED;
+    }
+
+    /**
+     * Whose option may still post the run's verdict comment, see {@link StandingVisas#commentLine}; null when TeamCity
+     * could not be asked who started the run. The row is what enables Post to PR, so a TeamCity error only costs the
+     * word on the option.
+     */
+    private StandingVisas.CommentLine option(int pr, long build, String tcToken, String username) {
+        try {
+            return runs.commentLine(pr, build, tcToken, username);
+        }
+        catch (RuntimeException e) {
+            log.warn("who started build {} is not known, the row of Post to PR tells nothing of their option: {}",
+                build, e.toString());
+
+            return null;
+        }
     }
 
     /**
@@ -166,7 +251,7 @@ public class PostToPrController {
     private static ResponseEntity<?> answer(StandingVisas.CommentPost posted, int pr) {
         return switch (posted.outcome()) {
             case StandingVisas.CommentPost.POSTED, StandingVisas.CommentPost.EDITED -> ResponseEntity.ok(new PrPost(
-                PrPost.READY, posted.url(), StandingVisas.CommentPost.EDITED.equals(posted.outcome())));
+                PrPost.READY, posted.url(), StandingVisas.CommentPost.EDITED.equals(posted.outcome()), null, true));
             case StandingVisas.CommentPost.NO_BOT -> noBot(PrPost.NONE);
             case StandingVisas.CommentPost.DEFERRED -> ResponseEntity.status(503).body(Map.of("error", "The checker's"
                 + " GitHub account cannot write to this PR now: it reached an hourly limit of writes, or GitHub asked it"
@@ -174,6 +259,7 @@ public class PostToPrController {
             case StandingVisas.CommentPost.CAPPED -> ResponseEntity.status(429).body(Map.of("error", "The checker took "
                 + StandingVisas.PRESSES_PER_PR_HOUR + " presses of Post to PR on this PR in the last hour, the most it"
                 + " allows. Try again later."));
+            case StandingVisas.CommentPost.CHANGED -> PostVisaController.changed();
             default -> notTaken(posted.status(), pr);
         };
     }
@@ -228,8 +314,12 @@ public class PostToPrController {
      * #READY}; {@link #NONE}, no GITHUB_TOKEN is set; {@link #REFUSED}, GitHub refuses it; {@link #PAUSED}, GitHub
      * asked the account to wait), and the address of the run's verdict comment, which a press edits; null when the
      * checker knows none. {@code edited}: the press just made edited the run's comment; null in any other answer.
+     * {@code option}: whose option may still post the comment, see {@link StandingVisas#commentLine}; null where
+     * the row does not tell. {@code current}: whether the run's comment still says what the verdict says, see {@link
+     * StandingVisas#commentCurrent}; null when the checker cannot tell.
      */
-    public record PrPost(String bot, String url, @JsonInclude(JsonInclude.Include.NON_NULL) Boolean edited) {
+    public record PrPost(String bot, String url, @JsonInclude(JsonInclude.Include.NON_NULL) Boolean edited,
+        @JsonUnwrapped StandingVisas.CommentLine option, @JsonInclude(JsonInclude.Include.NON_NULL) Boolean current) {
         static final String READY = "ready";
 
         static final String NONE = "none";

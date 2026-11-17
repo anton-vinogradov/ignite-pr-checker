@@ -4,13 +4,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.Caveats.Glance;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
+import com.github.igniteprchecker.jira.StandingVisas;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -32,7 +36,9 @@ class PrListBadgeTest {
 
     private final AuthInterceptor auth = mock(AuthInterceptor.class);
 
-    private final PrsController prs = new PrsController(github, analyzer, auth, mock(YourPrs.class));
+    private final StandingVisas visas = mock(StandingVisas.class);
+
+    private final PrsController prs = new PrsController(github, analyzer, auth, mock(YourPrs.class), visas);
 
     @Test
     void onlyACleanVerdictOfTheHeadIsTicked() {
@@ -74,6 +80,39 @@ class PrListBadgeTest {
         assertThat(list).contains("<span class=\"pr-badge unproven\" title=\"No blockers found, but commits were pushed "
             + "after this run.\" role=\"img\" aria-label=\"not proven clean\">?</span>");
         assertThat(list.split("pr-badge ok", -1)).as("one tick only").hasSize(2);
+    }
+
+    /**
+     * A row of the list says how far a run under way is. The RunAll of 13583 runs with 55 minutes left; no run of
+     * 13636 is under way, and its row has no field for one.
+     */
+    @Test
+    void aPrWhoseRunIsUnderWayIsListedWithItsStep() {
+        when(auth.signedIn(any())).thenReturn(Optional.empty());
+        when(github.openPrs()).thenReturn(List.of(pr(13583, HEAD), pr(13636, HEAD)));
+        when(analyzer.glance(13636)).thenReturn(new Glance(0, 0, true, HEAD));
+        when(visas.runStep(13583)).thenReturn(Optional.of(new PrSummary.RunStep(2, 3300L)));
+
+        List<PrSummary> listed = prs.prs(new MockHttpServletRequest());
+
+        assertThat(listed).extracting(PrSummary::number, PrSummary::run)
+            .containsExactly(tuple(13583, new PrSummary.RunStep(2, 3300L)), tuple(13636, null));
+        assertThat(Jackson2Defaults.mapper().writeValueAsString(listed.get(0)))
+            .contains("\"run\":{\"step\":2,\"leftSec\":3300}");
+        assertThat(Jackson2Defaults.mapper().writeValueAsString(listed.get(1))).doesNotContain("\"run\"");
+    }
+
+    /**
+     * An open page asks every minute how far the runs under way are, so that its rows follow them. The answer is what
+     * the checker has in memory, by PR: GitHub's list of open PRs is not asked for, and no verdict is looked up.
+     */
+    @Test
+    void theStepsOfTheRunsUnderWayAreServedWithoutTheList() {
+        when(visas.runSteps()).thenReturn(Map.of(13583, new PrSummary.RunStep(2, 3300L)));
+
+        assertThat(Jackson2Defaults.mapper().writeValueAsString(prs.runSteps()))
+            .isEqualTo("{\"13583\":{\"step\":2,\"leftSec\":3300}}");
+        verifyNoInteractions(github, analyzer, auth);
     }
 
     private static PrSummary pr(int number, String head) {

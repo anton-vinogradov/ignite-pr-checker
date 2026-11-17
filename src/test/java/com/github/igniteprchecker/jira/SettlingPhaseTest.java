@@ -5,8 +5,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.github.igniteprchecker.Jackson2Defaults;
@@ -25,6 +27,7 @@ import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -37,7 +40,8 @@ import tools.jackson.databind.node.ObjectNode;
 
 /**
  * What /api/settling tells the PR page about the verdict on screen: a RunAll still going, auto re-runs settling the
- * run (and which wave, until when), the decision on them being made, or a final verdict.
+ * run (and which wave, until when), the decision on them being made, or a final verdict. The PR list tells the same of
+ * every PR as a step of four, from what the checker holds in memory.
  */
 class SettlingPhaseTest {
     private static final String USER = "avinogradov";
@@ -121,6 +125,83 @@ class SettlingPhaseTest {
         assertThat(deciding.phase()).isEqualTo("settling");
         assertThat(deciding.wave()).isZero();
         assertThat(standing.phase(PR, CHAIN).phase()).isEqualTo("final");
+    }
+
+    /** A queued RunAll is step 1 with the time until it starts, a running one step 2 with the time it still takes. */
+    @Test
+    void theListTellsTheStepOfARunAllUnderWay() {
+        assertThat(standing.runStep(PR)).as("no run under way").isEmpty();
+
+        when(tracker.chainUnderWay(PR)).thenReturn(Optional.of(chain("queued", null, 1500L)));
+        assertThat(standing.runStep(PR)).contains(new PrSummary.RunStep(1, 1500L));
+
+        when(tracker.chainUnderWay(PR)).thenReturn(Optional.of(chain("running", 3300L, null)));
+        assertThat(standing.runStep(PR)).contains(new PrSummary.RunStep(2, 3300L));
+    }
+
+    /** Auto re-runs settling the PR's run are step 3, with the time the slowest of them still takes. */
+    @Test
+    void theListTellsTheStepOfAutoReRuns() {
+        when(analyzer.analyzeForAction("tc", PR)).thenReturn(Optional.of(verdict(blocker())));
+        standing.sweep();
+        when(tracker.active()).thenReturn(List.of(new RerunTracker.ActiveRerun(PR, "Cache1", "Cache 1", 9389100L,
+            "running", "", 40, 1500L, null, null, 600L)));
+
+        PrSummary.RunStep step = standing.runStep(PR).orElseThrow();
+
+        assertThat(step.step()).isEqualTo(3);
+        assertThat(step.leftSec()).isBetween(1495L, 1500L);
+        assertThat(standing.runStep(PR + 1)).as("another PR has no run under way").isEmpty();
+    }
+
+    /** The decision on re-runs is step 3 too, with no estimate; once the run is settled, the PR has no step. */
+    @Test
+    void theListTellsTheStepOfADecisionOnReRuns() throws Exception {
+        CountDownLatch analysing = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        when(analyzer.analyzeForAction("tc", PR)).thenAnswer(inv -> {
+            analysing.countDown();
+            release.await(10, TimeUnit.SECONDS);
+
+            return Optional.of(verdict());
+        });
+        Thread sweep = new Thread(standing::sweep, "sweep");
+        sweep.start();
+        assertThat(analysing.await(10, TimeUnit.SECONDS)).isTrue();
+
+        Optional<PrSummary.RunStep> deciding = standing.runStep(PR);
+        release.countDown();
+        sweep.join(10_000);
+
+        assertThat(deciding).contains(new PrSummary.RunStep(3, null));
+        assertThat(standing.runStep(PR)).isEmpty();
+    }
+
+    /**
+     * An open page asks every minute how far the runs under way are. Auto re-runs settle the run of 13335, the RunAll
+     * of 13336 runs, and someone re-runs a suite of 13337 by hand, which is no step: the answer names the first two,
+     * and neither TeamCity nor GitHub is asked for it.
+     */
+    @Test
+    void theStepsOfAllRunsUnderWayComeFromMemory() {
+        assertThat(standing.runSteps()).isEmpty();
+
+        when(analyzer.analyzeForAction("tc", PR)).thenReturn(Optional.of(verdict(blocker())));
+        standing.sweep();
+        RerunTracker.ActiveRerun chain = new RerunTracker.ActiveRerun(PR + 1, "IgniteTests24Java8_RunAll", "RunAll",
+            CHAIN + 500, "running", "", null, 3300L, null, null, null);
+        when(tracker.active()).thenReturn(List.of(new RerunTracker.ActiveRerun(PR, "Cache1", "Cache 1", 9389100L,
+            "running", "", 40, 1500L, null, null, 600L), chain, new RerunTracker.ActiveRerun(PR + 2, "Cache1",
+            "Cache 1", 9389200L, "queued", "", null, null, null, null, null)));
+        when(tracker.chainUnderWay(PR + 1)).thenReturn(Optional.of(chain));
+        clearInvocations(tc, github);
+
+        Map<Integer, PrSummary.RunStep> steps = standing.runSteps();
+
+        assertThat(steps).containsOnlyKeys(PR, PR + 1).containsEntry(PR + 1, new PrSummary.RunStep(2, 3300L));
+        assertThat(steps.get(PR).step()).isEqualTo(3);
+        assertThat(steps.get(PR).leftSec()).isBetween(1495L, 1500L);
+        verifyNoInteractions(tc, github);
     }
 
     /**
@@ -282,6 +363,11 @@ class SettlingPhaseTest {
     private static TcModel.Build finished(long buildId) {
         return new TcModel.Build(buildId, "FAILURE", "finished", "pull/13335/head", null, null, null, null, null, null,
             null, null, new TcModel.Triggered("user", new TcModel.User(USER)), null, null, null, null, null);
+    }
+
+    private static RerunTracker.ActiveRerun chain(String state, Long leftSec, Long startSec) {
+        return new RerunTracker.ActiveRerun(PR, "IgniteTests24Java8_RunAll", "RunAll", CHAIN + 500, state, "", null,
+            leftSec, startSec, null, null);
     }
 
     private static TestVerdict blocker() {

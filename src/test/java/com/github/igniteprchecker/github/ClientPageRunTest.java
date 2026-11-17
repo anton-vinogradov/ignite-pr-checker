@@ -216,7 +216,7 @@ class ClientPageRunTest {
         when(github.appComment(eq(CLIENT_REPO), eq(PR), eq("reviewer"), anyString())).thenReturn(
             new GithubClient.PostedComment(90L, "https://github.com/" + CLIENT_REPO + "/pull/69#issuecomment-90"));
         standing.postClientCommentFromPage("reviewer", SettingsJournal.By.of("laptop", "Firefox on Linux"),
-            CLIENT_REPO, PR, RUN, 0, fromPage -> "the verdict from the page");
+            CLIENT_REPO, PR, RUN, 0, verdict(RUN, true), fromPage -> "the verdict from the page", null);
 
         finished(RUN, "FAILURE");
         commands.updateEtas();

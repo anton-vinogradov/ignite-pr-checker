@@ -231,6 +231,11 @@ public class BlockerAnalyzer {
         return prGlance.get(prNumber);
     }
 
+    /** The verdict of the build the cache holds now, if any. Nothing is computed, and TeamCity is not asked. */
+    public Optional<AnalysisResult> held(long buildId) {
+        return cache.peekResult(buildId);
+    }
+
     private void rememberVerdict(int prNumber, AnalysisResult r) {
         prGlance.put(prNumber, Caveats.Glance.of(r));
         analysedBuild.put(prNumber, r.buildId());

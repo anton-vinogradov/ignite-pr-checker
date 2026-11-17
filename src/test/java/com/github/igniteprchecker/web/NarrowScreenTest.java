@@ -169,6 +169,22 @@ class NarrowScreenTest {
     }
 
     /**
+     * The four steps of a run stood in one row at every width, so on a phone each had a quarter of the card for "wave
+     * 1 of 2 · 1 running, 1 queued". On a phone they stand two to a row. The line that led from a step to the next
+     * would lead from the second step to the edge, so a phone shows none.
+     */
+    @Test
+    void theStepsOfARunStandTwoToARowOnAPhone() throws Exception {
+        String css = Files.readString(Path.of("src/main/resources/static/index.html"));
+        String wide = css.substring(0, css.indexOf("@media (max-width: 768px)"));
+        String narrow = narrow("index.html");
+
+        assertThat(rule(wide, ".steps")).contains("grid-template-columns: repeat(4, minmax(0, 1fr))");
+        assertThat(rule(narrow, ".steps")).contains("grid-template-columns: repeat(2, minmax(0, 1fr))", "row-gap:");
+        assertThat(rule(narrow, ".step::before")).contains("display: none");
+    }
+
+    /**
      * "No blockers found — not proven clean" takes two lines on a phone, and its "?" stood alone on a third, with 240
      * px free after the last word. The text and the "?" are one span in the heading's row, so the "?" follows the word.
      */

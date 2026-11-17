@@ -26,10 +26,13 @@ import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
@@ -111,7 +114,7 @@ class PageVisaTest {
         standing.settle(summary());
         verify(jira).addCommentWithId(eq("jira-pat"), eq(ISSUE), anyString());
 
-        StandingVisas.PagePost posted = standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed());
+        StandingVisas.PagePost posted = standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed(), null);
 
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
         verify(jira).updateComment(eq("jira-pat"), eq(ISSUE), eq(COMMENT), body.capture());
@@ -127,11 +130,108 @@ class PageVisaTest {
                 + " the PR page.", "from this browser", URL);
     }
 
+    /**
+     * Before a press the page shows the visa as it would go. The preview is the text the press then sends, and it
+     * sends nothing itself. A user with no JIRA token stored gets none.
+     */
+    @Test
+    void thePreviewIsTheTextThePressSends() {
+        Optional<String> preview = standing.visaPreview(AUTHOR, "tc", PR, RUN, mixed());
+
+        verify(jira, never()).addCommentWithId(anyString(), anyString(), anyString());
+        assertThat(journal.views(AUTHOR, "laptop", "Firefox on Linux")).extracting(SettingsJournal.View::text)
+            .noneMatch(text -> text.contains("Post to JIRA"));
+
+        standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed(), null);
+
+        assertThat(preview).hasValue(visas.compose(PR, mixed(), null, null) + POSTED_BY);
+        verify(jira).addCommentWithId("jira-pat", ISSUE, preview.get());
+        assertThat(standing.visaPreview(REVIEWER, "tc", PR, RUN, mixed())).as("no JIRA token stored").isEmpty();
+        assertThat(standing.clientVisaPreview(AUTHOR, "the client's visa")).hasValue("the client's visa" + POSTED_BY);
+    }
+
+    /**
+     * The author read the visa with the blocker in the dialog. Before they pressed, the suite passed on a re-run, and
+     * the verdict became the mixed run's. The press carries the key of the text they read, and the visa is another
+     * text now: nothing is posted. The next press shows the new text, and its key posts it.
+     */
+    @Test
+    void aVisaThatIsNotTheTextThePageShowedDoesNotGo() {
+        String shown = StandingVisas.textKey(standing.visaPreview(AUTHOR, "tc", PR, RUN, withBlocker()).orElseThrow());
+
+        StandingVisas.PagePost changed = standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed(),
+            shown);
+
+        assertThat(changed).isEqualTo(StandingVisas.PagePost.of(StandingVisas.PagePost.CHANGED));
+        verify(jira, never()).addCommentWithId(anyString(), anyString(), anyString());
+        assertThat(journal.views(AUTHOR, "laptop", "Firefox on Linux")).extracting(SettingsJournal.View::text)
+            .noneMatch(text -> text.contains("Post to JIRA"));
+
+        String now = standing.visaPreview(AUTHOR, "tc", PR, RUN, mixed()).orElseThrow();
+        StandingVisas.PagePost posted = standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed(),
+            StandingVisas.textKey(now));
+
+        assertThat(posted.outcome()).isEqualTo(StandingVisas.PagePost.POSTED);
+        verify(jira).addCommentWithId("jira-pat", ISSUE, now);
+    }
+
+    /**
+     * The PR page offers Update only for a visa the verdict left behind. The author's option posted the visa of the
+     * run with its blocker. While the checker holds that verdict their visa is current; once the suite passed on a
+     * re-run it is not, until their press updates it. The checker cannot tell while it holds no verdict of the run,
+     * and tells nothing to a reviewer, who has no visa of the run. A merged PR's kept verdict is the one to compare.
+     */
+    @Test
+    void theVisaIsCurrentUntilTheVerdictChanges() {
+        when(analyzer.analyzeForAction(anyString(), eq(PR))).thenReturn(Optional.of(withBlocker()));
+        standing.settle(summary());
+        verify(jira).addCommentWithId(eq("jira-pat"), eq(ISSUE), anyString());
+
+        assertThat(standing.visaCurrent(AUTHOR, null, PR, RUN, Optional.empty())).as("no verdict held").isNull();
+        when(analyzer.held(RUN)).thenReturn(Optional.of(withBlocker()));
+        assertThat(standing.visaCurrent(AUTHOR, null, PR, RUN, Optional.empty())).isTrue();
+        assertThat(standing.visaCurrent(REVIEWER, null, PR, RUN, Optional.empty())).as("no visa of theirs").isNull();
+        assertThat(standing.visaCurrent(AUTHOR, null, PR, RUN, Optional.of(mixed()))).as("merged as a mixed run")
+            .isFalse();
+        when(analyzer.held(RUN)).thenReturn(Optional.of(mixed()));
+        assertThat(standing.visaCurrent(AUTHOR, null, PR, RUN, Optional.empty())).isFalse();
+
+        standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed(), null);
+
+        assertThat(standing.visaCurrent(AUTHOR, null, PR, RUN, Optional.empty())).isTrue();
+    }
+
+    /**
+     * A file of v1.52.0 keeps the author's visa of the run without what its verdict says. It loads, and the checker
+     * cannot tell whether the visa is current until a press updates it.
+     */
+    @Test
+    void aVisaKeptWithoutItsVerdictLoadsAndIsNotToldCurrent(@TempDir Path dir) throws Exception {
+        Path old = dir.resolve("old.json");
+        Files.writeString(old, """
+            {"enrollments": [], "retries": {}, "earlyReruns": {}, "waves": {}, "keyCheck": null,
+             "visas": {"%d": {"pr": %d, "by": "author", "issue": "%s", "commentId": "%s"}},
+             "pageVisas": {"%d": [{"pr": %d, "by": "author", "issue": "%s", "commentId": "%s"}]}}
+            """.formatted(RUN, PR, ISSUE, COMMENT, RUN, PR, ISSUE, COMMENT));
+        when(analyzer.held(RUN)).thenReturn(Optional.of(mixed()));
+
+        standing.loadFrom(old);
+        standing.change(AUTHOR, "tc", "jira-pat", null, new StandingVisas.OptionChange(true, false, false, false, null),
+            null, LAPTOP);
+
+        assertThat(standing.visaButton(AUTHOR, null, PR, RUN)).isEqualTo(new StandingVisas.VisaButton(true, ISSUE));
+        assertThat(standing.visaCurrent(AUTHOR, null, PR, RUN, Optional.empty())).isNull();
+        standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed(), null);
+        verify(jira).updateComment(eq("jira-pat"), eq(ISSUE), eq(COMMENT), anyString());
+        assertThat(standing.visaCurrent(AUTHOR, null, PR, RUN, Optional.empty())).isTrue();
+    }
+
     /** The first press posts a comment, the second edits it: a run has one visa of the user's. */
     @Test
     void aSecondPressEditsTheVisaTheFirstPosted() {
-        StandingVisas.PagePost first = standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, withBlocker());
-        StandingVisas.PagePost second = standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed());
+        StandingVisas.PagePost first = standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, withBlocker(),
+            null);
+        StandingVisas.PagePost second = standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed(), null);
 
         verify(jira).addCommentWithId("jira-pat", ISSUE, visas.compose(PR, withBlocker(), null, null) + POSTED_BY);
         verify(jira).updateComment("jira-pat", ISSUE, COMMENT, visas.compose(PR, mixed(), null, null) + POSTED_BY);
@@ -158,7 +258,7 @@ class PageVisaTest {
             .thenReturn(new JiraClient.PostedComment(COMMENT, URL));
         standing.settle(summary());
 
-        standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed());
+        standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed(), null);
         standing.settle(summary());
 
         verify(jira, times(2)).addCommentWithId(anyString(), anyString(), anyString());
@@ -171,7 +271,7 @@ class PageVisaTest {
         when(jira.addCommentWithId(anyString(), anyString(), anyString())).thenThrow(refused(401));
         when(jira.tokenRejected("jira-pat")).thenReturn(true);
 
-        StandingVisas.PagePost posted = standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed());
+        StandingVisas.PagePost posted = standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed(), null);
 
         assertThat(posted.outcome()).isEqualTo(StandingVisas.PagePost.REFUSED);
         assertThat(standing.jiraTokenRejected(AUTHOR)).isTrue();
@@ -186,7 +286,7 @@ class PageVisaTest {
     void aVisaJiraDidNotTakeKeepsTheToken() {
         when(jira.addCommentWithId(anyString(), anyString(), anyString())).thenThrow(refused(403));
 
-        StandingVisas.PagePost posted = standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed());
+        StandingVisas.PagePost posted = standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed(), null);
 
         assertThat(posted).isEqualTo(new StandingVisas.PagePost(StandingVisas.PagePost.FAILED, null, null, 403));
         assertThat(standing.visaButton(AUTHOR, null, PR, RUN)).isEqualTo(new StandingVisas.VisaButton(true, null));
@@ -197,7 +297,8 @@ class PageVisaTest {
     /** The JIRA token lives only in the option: a user without it gets nothing posted, and JIRA is not asked. */
     @Test
     void noStoredJiraTokenNoVisa() {
-        StandingVisas.PagePost posted = standing.postVisaFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, ISSUE, mixed());
+        StandingVisas.PagePost posted = standing.postVisaFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, ISSUE, mixed(),
+            null);
 
         assertThat(posted.outcome()).isEqualTo(StandingVisas.PagePost.NO_TOKEN);
         assertThat(standing.visaButton(REVIEWER, null, PR, RUN)).isEqualTo(new StandingVisas.VisaButton(false, null));
@@ -217,8 +318,8 @@ class PageVisaTest {
         when(jira.addCommentWithId(eq("jira-pat-2"), eq(ISSUE), anyString()))
             .thenReturn(new JiraClient.PostedComment("18000002", URL + "2"));
 
-        standing.postVisaFromPage(REVIEWER, LAPTOP, "tc2", PR, RUN, ISSUE, mixed());
-        standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed());
+        standing.postVisaFromPage(REVIEWER, LAPTOP, "tc2", PR, RUN, ISSUE, mixed(), null);
+        standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed(), null);
 
         verify(jira).addCommentWithId(eq("jira-pat-2"), eq(ISSUE), anyString());
         verify(jira).updateComment(eq("jira-pat"), eq(ISSUE), eq(COMMENT), anyString());
@@ -228,11 +329,11 @@ class PageVisaTest {
     /** The PR's title names another ticket now: the visa there is a new comment, and the old one stays as it is. */
     @Test
     void aVisaInAnotherTicketIsANewComment() {
-        standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed());
+        standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed(), null);
         when(jira.addCommentWithId(eq("jira-pat"), eq("IGNITE-29101"), anyString()))
             .thenReturn(new JiraClient.PostedComment("18000009", URL));
 
-        standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, "IGNITE-29101", mixed());
+        standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, "IGNITE-29101", mixed(), null);
 
         verify(jira).addCommentWithId(eq("jira-pat"), eq("IGNITE-29101"), anyString());
         verify(jira, never()).updateComment(anyString(), anyString(), anyString(), anyString());
@@ -243,7 +344,7 @@ class PageVisaTest {
     void aProvenGithubLoginIsNamedNextToTheCi2Name() {
         standing.linkGhLogin(AUTHOR, "tc", GhUsers.of("author-gh"));
 
-        standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed());
+        standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE, mixed(), null);
 
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
         verify(jira).addCommentWithId(eq("jira-pat"), eq(ISSUE), body.capture());
@@ -264,7 +365,7 @@ class PageVisaTest {
             List.of(), List.of(), List.of(), 0, "1f2e3d4+a1b2c3d", 0);
 
         StandingVisas.PagePost posted = standing.postClientVisaFromPage(AUTHOR, LAPTOP, repo, 69, build, ISSUE, res,
-            "the verdict");
+            "the verdict", null);
         ClientVisa option = standing.clientVisa(AUTHOR, repo, 69, build, System.currentTimeMillis() + 1000, res,
             "the option's visa", () -> Optional.of(new GithubClient.PullState(ISSUE + " Fix the test", true, false)));
 
@@ -278,6 +379,27 @@ class PageVisaTest {
         assertThat(journal.views(AUTHOR, "laptop", "Firefox on Linux").get(0).text()).isEqualTo("Posted a visa to"
             + " IGNITE-29100 for PR #69 of apache/ignite-python-thin-client, build 9424005, with Post to JIRA on the PR"
             + " page.");
+    }
+
+    /** A client's visa goes only as the text the page showed too. */
+    @Test
+    void aClientRunsVisaThatIsNotTheTextThePageShowedDoesNotGo() {
+        String repo = "apache/ignite-python-thin-client";
+        long build = 9424005L;
+        AnalysisResult res = new AnalysisResult(69, build, "pull/69", System.currentTimeMillis(), List.of(), List.of(),
+            List.of(), List.of(), List.of(), 1, 0, false, 0, false, 0, 0, 0, System.currentTimeMillis() / 1000, 0,
+            List.of(), List.of(), List.of(), 0, "1f2e3d4+a1b2c3d", 0);
+        String shown = StandingVisas.textKey(standing.clientVisaPreview(AUTHOR, "the verdict").orElseThrow());
+
+        StandingVisas.PagePost changed = standing.postClientVisaFromPage(AUTHOR, LAPTOP, repo, 69, build, ISSUE, res,
+            "the verdict after a re-run", shown);
+        StandingVisas.PagePost posted = standing.postClientVisaFromPage(AUTHOR, LAPTOP, repo, 69, build, ISSUE, res,
+            "the verdict", shown);
+
+        assertThat(changed).isEqualTo(StandingVisas.PagePost.of(StandingVisas.PagePost.CHANGED));
+        assertThat(posted.outcome()).isEqualTo(StandingVisas.PagePost.POSTED);
+        verify(jira).addCommentWithId("jira-pat", ISSUE, "the verdict" + POSTED_BY);
+        verify(jira, times(1)).addCommentWithId(anyString(), anyString(), anyString());
     }
 
     private static PrSummary summary() {

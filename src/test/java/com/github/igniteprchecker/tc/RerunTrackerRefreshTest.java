@@ -81,6 +81,28 @@ class RerunTrackerRefreshTest {
         assertThat(tracker.newestChainUnderWay(PR)).isZero();
     }
 
+    /** The PR list reads the chain's state and estimate off the tracker: it asks TeamCity nothing of its own. */
+    @Test
+    void theChainUnderWayComesWithItsStateAndEstimate() {
+        tracker.record(PR, build(CHAIN, RUN_ALL, "queued", null, null));
+        tracker.record(PR, build(RERUN, "IgniteTests24Java8_Cache1", "running", null, null));
+        when(tc.getBuildState("tc", RERUN)).thenReturn(build(RERUN, "IgniteTests24Java8_Cache1", "running", null, null));
+        String queued = tracker.chainUnderWay(PR).map(RerunTracker.ActiveRerun::state).orElse(null);
+        when(tc.getChainDepStates("tc", CHAIN)).thenReturn(new TcModel.Build(CHAIN, null, "running", "pull/13335/head",
+            RUN_ALL, "https://ci2.example/build/" + CHAIN, null, null, null, null, null,
+            new TcModel.BuildType(RUN_ALL, "RunAll"), null, null, new TcModel.RunningInfo(15, 600L, 3900L), null, null,
+            null));
+
+        tracker.refresh();
+
+        assertThat(queued).isEqualTo("queued");
+        assertThat(tracker.chainUnderWay(PR)).get()
+            .extracting(RerunTracker.ActiveRerun::buildId, RerunTracker.ActiveRerun::state,
+                RerunTracker.ActiveRerun::leftSec)
+            .containsExactly(CHAIN, "running", 3300L);
+        assertThat(tracker.chainUnderWay(PR + 1)).as("a PR with no RunAll under way").isEmpty();
+    }
+
     @Test
     void aFinishedReRunRecomputesTheVerdict() {
         tracker.record(PR, build(RERUN, "IgniteTests24Java8_Cache1", "queued", null, null));

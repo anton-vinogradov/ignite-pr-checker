@@ -118,37 +118,45 @@ class VerdictCardPageTest {
         assertThat(out.get("acts").asBoolean()).isTrue();
     }
 
-    /** The visa line stands in the verdict's heading instead of the visa buttons; with no ticket it says so. */
+    /**
+     * The groups of the visa and of the PR comment stand at the end of the verdict card, under the steps, instead of
+     * the visa buttons; with no ticket the visa's button is grey, and its ? says so.
+     */
     @Test
-    void theVisaLineSitsInTheVerdictHeading() throws Exception {
+    void theVisaGroupSitsUnderTheStepsOfTheVerdictCard() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             await page.load('?pr=13575');
             page.run('setPrTitle')(13575, 'Move MDC to JUnit', null);
             await page.run('loadVisaLine')(13575);
-            const noTicket = { hidden: page.el('visaLine').classList.contains('hidden'),
-                text: page.el('visaLine').textContent, asked: page.fetches('/api/visa').length };
+            const noTicket = { hidden: page.el('visaPostGroup').classList.contains('hidden'),
+                off: page.el('visaPost').getAttribute('aria-disabled'), text: page.el('visaPostWhy').title,
+                asked: page.fetches('/api/visa').length };
             """ + TICKET + """
-            report({ noTicket, due: page.el('visaLine').textContent });
+            report({ noTicket, due: page.el('visaPostWhy').title });
             """);
 
         String page = Files.readString(PAGE, UTF_8);
-        int head = page.indexOf("<h2 id=\"verdictHead\">");
-        assertThat(page.substring(head, page.indexOf("</h2>", head)))
-            .contains("<span id=\"visaLine\" class=\"visa-group muted hidden\">");
+        int steps = page.indexOf("<ol id=\"steps\"");
+        assertThat(page.substring(steps, page.indexOf("<div id=\"interruptedBanner\"", steps)))
+            .contains("<span id=\"visaPostGroup\" class=\"visa-group hidden\" role=\"group\"",
+                "<span id=\"visaLead\">Verdict to JIRA:</span>",
+                "<span id=\"prPostGroup\" class=\"visa-group hidden\" role=\"group\"", "<span id=\"prLead\">to PR:</span>");
         assertThat(page).doesNotContain("id=\"visaBtn\"", "id=\"autoVisaBtn\"", "Post now", "JIRA visa:");
         assertThat(out.get("noTicket").get("hidden").asBoolean()).isFalse();
-        assertThat(out.get("noTicket").get("text").asText()).isEqualTo("Visa: the PR title names no IGNITE ticket");
+        assertThat(out.get("noTicket").get("off").asText()).isEqualTo("true");
+        assertThat(out.get("noTicket").get("text").asText()).isEqualTo("The PR title names no IGNITE ticket, so there"
+            + " is no ticket to post the visa to. Add the ticket key to the title.");
         assertThat(out.get("noTicket").get("asked").asInt()).as("the title alone tells it").isZero();
-        assertThat(out.get("due").asText()).isEqualTo("Visa: will be posted to IGNITE-29049 when the run settles");
+        assertThat(out.get("due").asText()).startsWith("Visa: will be posted to IGNITE-29049 when the run settles. ");
     }
 
-    /** The run settled while the page was open: the next poll of the runs repaints the line. */
+    /** The run settled while the page was open: the next poll of the runs repaints the group. */
     @Test
-    void theVisaLineFollowsTheRunsAsTheyArePolled() throws Exception {
+    void theVisaGroupFollowsTheRunsAsTheyArePolled() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             await page.load('?pr=13575');
             """ + TICKET + """
-            const due = page.el('visaLine').textContent;
+            const due = page.el('visaPostWhy').title;
             page.route('/api/visa', { body: { state: 'posted', starter: 'alice', mine: true, issue: 'IGNITE-29049',
                 url: 'https://issues.apache.org/jira/browse/IGNITE-29049?focusedCommentId=1#comment-1' } });
             await page.run('loadRuns')(13575);
@@ -156,10 +164,10 @@ class VerdictCardPageTest {
             report({ due, posted: page.el('visaLine').innerHTML });
             """);
 
-        assertThat(out.get("due").asText()).isEqualTo("Visa: will be posted to IGNITE-29049 when the run settles");
-        assertThat(out.get("posted").asText()).isEqualTo("Visa: posted to <a href=\"https://issues.apache.org/jira/"
+        assertThat(out.get("due").asText()).startsWith("Visa: will be posted to IGNITE-29049 when the run settles. ");
+        assertThat(out.get("posted").asText()).isEqualTo("<a href=\"https://issues.apache.org/jira/"
             + "browse/IGNITE-29049?focusedCommentId=1#comment-1\" target=\"_self\" rel=\"noopener\" title=\"Opens the "
-            + "visa in JIRA.\">IGNITE-29049</a>");
+            + "visa in JIRA.\">✓ posted</a>");
     }
 
     /** The view switch says which view is on to a screen reader too, not only by its fill. */

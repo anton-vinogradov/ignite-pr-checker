@@ -104,8 +104,9 @@ class PostVisaGuardsTest {
             assertThat(warmer.tokenRevoked(token)).as("the guard refuses the token's sessions from now on").isTrue();
         }
         verify(standing, never()).visaButton(any(), any(), anyInt(), anyLong());
-        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any());
-        verify(standing, never()).postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
+        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
+        verify(standing, never()).postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any(),
+            any());
     }
 
     @Test
@@ -128,6 +129,29 @@ class PostVisaGuardsTest {
         assertThat(send(get("/api/visa?pr=13709&build=9425992"), "live-tc").getStatus()).isEqualTo(200);
 
         verify(tc, never()).tokenRejected(anyString());
+    }
+
+    /**
+     * The preview of a visa shows what Post to JIRA would post in alice's name: it is for her login only. It is a
+     * read, so it asks TeamCity nothing of the token, and it posts nothing.
+     */
+    @Test
+    void thePreviewNeedsTheLoginAndPostsNothing() throws Exception {
+        List<String> previews = List.of("/api/visa/preview?pr=13709&build=9425992&issue=IGNITE-29100",
+            "/api/client/visa/preview?repo=python&pr=69&build=9424200&issue=IGNITE-29117");
+        when(standing.visaButton(any(), any(), anyInt(), anyLong())).thenReturn(
+            new StandingVisas.VisaButton(false, null));
+
+        for (String path : previews) {
+            assertThat(mvc.perform(get(path)).andReturn().getResponse().getStatus()).as(path + ", no login")
+                .isEqualTo(401);
+            assertThat(send(get(path), "live-tc").getStatus()).as(path + ", no JIRA token stored").isEqualTo(412);
+        }
+
+        verify(tc, never()).tokenRejected(anyString());
+        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
+        verify(standing, never()).postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any(),
+            any());
     }
 
     /** The login guard and the live token check on the paths and in the order the service registers them. */

@@ -62,7 +62,8 @@ function fakeElement(id, startClasses) {
         closest: () => null,
         contains: () => false,
         focus() { doc.activeElement = el; },
-        blur() {}, select() {}, remove() {}, appendChild() {}, scrollIntoView() {},
+        blur() {}, select() {}, remove() {}, scrollIntoView() {},
+        appendChild(child) { child.parentNode = el; },
         setAttribute(k, v) { this.attributes[k] = String(v); },
         removeAttribute(k) { delete this.attributes[k]; },
         getAttribute(k) { return k in this.attributes ? this.attributes[k] : null; },
@@ -280,9 +281,10 @@ const page = {
         for (const fn of winListeners.popstate || []) fn();
         await settle();
     },
-    async keydown(key, target) {
+    async keydown(key, target, more) {
         doc.activeElement = target || doc.body;
-        const e = { key, target: doc.activeElement, preventDefault() {}, ctrlKey: false, metaKey: false, altKey: false };
+        const e = { key, target: doc.activeElement, preventDefault() {}, ctrlKey: false, metaKey: false, altKey: false,
+            ...more };
         for (const fn of docListeners.keydown || []) fn(e);
         await settle();
     },

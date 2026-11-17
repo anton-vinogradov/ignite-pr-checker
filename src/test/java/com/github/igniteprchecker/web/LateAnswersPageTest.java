@@ -112,7 +112,7 @@ class LateAnswersPageTest {
                 asked: page.fetches('/api/visa?pr=13461').length });
             """);
 
-        assertThat(out.get("posted").asText()).isEqualTo("Visa: posted to IGNITE-29049");
+        assertThat(out.get("posted").asText()).isEqualTo("✓ posted");
         assertThat(out.get("asked").asInt()).isPositive();
         assertThat(out.get("line").asText()).doesNotContain("posted");
     }
@@ -148,7 +148,7 @@ class LateAnswersPageTest {
             """);
 
         assertThat(out.get("asked").asText()).isEqualTo("/api/visa?pr=13575&build=9001");
-        assertThat(out.get("line").asText()).doesNotContain("IGNITE-29049");
+        assertThat(out.get("line").asText()).doesNotContain("posted");
     }
 
     /** The tests of RunAll 9001 came after the page had moved on to RunAll 9100 of the same PR. */

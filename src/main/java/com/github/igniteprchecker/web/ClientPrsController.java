@@ -265,11 +265,13 @@ public class ClientPrsController {
     public PostVisaController.VisaRow visaLine(@RequestParam String repo, @RequestParam int pr, @RequestParam long build,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
         ClientSpec spec = projects.require(repo);
-        String revision = clients.kept(spec, pr).map(ClientVerdicts.Verdict::result)
-            .filter(r -> r.buildId() == build).map(AnalysisResult::revision).orElse(null);
+        Optional<AnalysisResult> kept = clients.kept(spec, pr).map(ClientVerdicts.Verdict::result)
+            .filter(r -> r.buildId() == build);
 
-        return PostVisaController.VisaRow.of(standing.clientVisaLine(username, spec.repo(), pr, build, revision),
-            standing.visaButton(username, spec.repo(), pr, build));
+        return PostVisaController.VisaRow.of(standing.clientVisaLine(username, spec.repo(), pr, build,
+                kept.map(AnalysisResult::revision).orElse(null)),
+            standing.visaButton(username, spec.repo(), pr, build),
+            standing.visaCurrent(username, spec.repo(), pr, build, kept));
     }
 
     /**

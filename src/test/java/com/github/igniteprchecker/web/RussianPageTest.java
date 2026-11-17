@@ -99,13 +99,15 @@ class RussianPageTest {
                 builtRevision: 'abc1234abc1234' } });
             await page.load('?pr=13575');
             await page.tick(100);
+            page.run('toggleStep')(2);
             const text = id => page.el(id).textContent;
-            const ids = ['verdictText', 'verdictLines', 'freshText', 'freshMore', 'runs', 'settling', 'pending',
+            const ids = ['verdictText', 'verdictLines', 'freshText', 'freshMore', 'runs', 'settling', 'steps',
+                'stepPanel', 'pending',
                 'visaLine', 'delta', 'brokenSuites', 'brokenAdvice', 'shrunkSuites', 'blockers', 'oneRunBlockers',
                 'watch', 'unverified', 'filtered', 'filteredCount', 'watchCount', 'unverifiedCount', 'shrunkCount',
                 'blockersHead', 'tabCauses', 'runAllLabel'];
-            const html = ['freshText', 'freshMore', 'runs', 'brokenSuites', 'shrunkSuites', 'blockers', 'watch',
-                'filtered', 'delta'].map(id => page.el(id).innerHTML).join('\\n');
+            const html = ['freshText', 'freshMore', 'runs', 'steps', 'stepPanel', 'brokenSuites', 'shrunkSuites',
+                'blockers', 'watch', 'filtered', 'delta'].map(id => page.el(id).innerHTML).join('\\n');
             report({ texts: Object.fromEntries(ids.map(id => [id, text(id)])), html,
                 lang: page.run('document.documentElement.getAttribute("lang")'), tab: page.run('document.title') });
             """);
@@ -116,8 +118,11 @@ class RussianPageTest {
         assertThat(texts.get("filteredCount").asText()).isEqualTo("(1 сьюта, 3 теста)");
         assertThat(texts.get("verdictLines").asText()).startsWith("Этот прогон покрывает PR не полностью: у 64 сьют нет "
             + "надёжного результата (60× сбой ci2: артефакты недоступны;");
-        assertThat(texts.get("settling").asText()).isEqualTo("Предварительный вердикт — дождись обновлённого результата. ♻︎ Автоповтор 1/2: выполняется — 1, в очереди — 1."
-            + " Осталось примерно ~20\u00a0мин.");
+        assertThat(texts.get("settling").asText())
+            .isEqualTo("Предварительный вердикт — дождись обновлённого результата.");
+        assertThat(texts.get("steps").asText())
+            .contains("Автоповтор", "волна 1 из 2 · выполняется — 1, в очереди — 1 · осталось ~20\u00a0мин");
+        assertThat(texts.get("stepPanel").asText()).startsWith("Автоповтор в TeamCity:").contains("запустил bob");
         assertThat(texts.get("filtered").asText()).contains("было и раньше: падает 1/4 на master на JDK 17",
             "флаки на ветке: упал только в последнем из 2 прогонов на коммите 3fdf446 (более ранний прогон на том же "
                 + "коде прошёл)");

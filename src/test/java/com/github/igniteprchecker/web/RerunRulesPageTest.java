@@ -198,6 +198,85 @@ class RerunRulesPageTest {
     }
 
     /**
+     * A PR that never ran has one thing to do, and its page filled no button. Run is the next step while the PR has no
+     * run to analyse and none queued or running; a queued RunAll makes the next step to wait, and a verdict hands the
+     * fill to its own next step.
+     */
+    @Test
+    void runIsTheNextStepOfAPrWithNoRun() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + PAIRS + """
+            const run = () => page.el('runBtn').classList.contains('primary');
+            page.route('/api/analyze', { status: 404, body: { error: 'no RunAll build for this PR', noRun: true } });
+            await page.load('?pr=13575');
+            const noRun = run();
+            page.route('/api/runs', { body: [{ buildId: 9100, runAll: true, state: 'queued', name: 'RunAll', mine: true,
+                webUrl: 'https://ci2.example/build/9100', startSec: 600 }] });
+            await page.tick(90000);
+            const queued = run();
+            page.route('/api/runs', { body: [] });
+            await page.tick(15000);
+            const cancelled = run();
+            page.route('/api/analyze', { body: verdict({ prNumber: 13461 }) });
+            page.run('openPr')(13461, true);
+            const otherPr = run();
+            await page.settle();
+            report({ noRun, queued, cancelled, otherPr, analysed: run() });
+            """);
+
+        assertThat(out.get("noRun").asBoolean()).isTrue();
+        assertThat(out.get("queued").asBoolean()).as("a RunAll is queued: wait").isFalse();
+        assertThat(out.get("cancelled").asBoolean()).as("the queued RunAll is gone").isTrue();
+        assertThat(out.get("otherPr").asBoolean()).as("another PR opens with no filled button").isFalse();
+        assertThat(out.get("analysed").asBoolean()).as("a PR with a verdict").isFalse();
+    }
+
+    /**
+     * The checker re-runs Cache 1 in wave 1 of its auto re-runs: a manual Rerun of it would only replace that build.
+     * Its row's pair is hidden while the build is queued or running, and the section's pair once the wave re-runs
+     * every suite of the section. A suite someone re-runs by hand keeps its pair, and all come back when the wave ends.
+     */
+    @Test
+    void noManualRerunStandsNextToAnAutomaticOne() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + PAIRS + """
+            const suite = (id, name) => ({ suite: id, suiteName: name, suiteBuildId: 9003, problems: ['execution timeout'],
+                tests: 0, baseline: 0 });
+            // The pairs of the suite rows, which the harness's elements lack.
+            const rows = ['Cache1', 'Cache2', 'IgniteTests24Java8_Cache'].map(id => {
+                const b = page.el('row-' + id);
+                b.dataset.suite = id;
+                return b;
+            });
+            page.run('document').querySelectorAll = sel => sel === '.suite-rerun' ? rows : [];
+            const hidden = () => ({ rows: rows.filter(b => b.classList.contains('hidden')).map(b => b.dataset.suite),
+                sections: ['brokenActs', 'blockerActs'].filter(id => page.el(id).classList.contains('hidden')) });
+            const rerun = (buildId, buildTypeId, state) => ({ pr: 13575, buildId, buildTypeId, state,
+                webUrl: 'https://ci2.example/build/' + buildId });
+            page.route('/api/analyze', { body: verdict({ brokenSuites: [suite('Cache1', 'Cache 1'), suite('Cache2', 'Cache 2')] }) });
+            await page.load('?pr=13575');
+            const before = hidden();
+            page.route('/api/reruns', { body: [rerun(9201, 'Cache1', 'running'), rerun(9300, 'IgniteTests24Java8_Cache', 'queued')] });
+            page.route('/api/settling', { body: { phase: 'settling', wave: 1, of: 2, what: '1 broken suite', rerunBuildIds: [9201] } });
+            await page.tick(90000);
+            const one = hidden();
+            page.route('/api/reruns', { body: [rerun(9201, 'Cache1', 'running'), rerun(9202, 'Cache2', 'queued')] });
+            page.route('/api/settling', { body: { phase: 'settling', wave: 1, of: 2, what: '2 broken suites',
+                rerunBuildIds: [9201, 9202] } });
+            await page.tick(90000);
+            const both = hidden();
+            page.route('/api/reruns', { body: [] });
+            page.route('/api/settling', { body: { phase: 'final', wave: 0, of: 2, completedWaves: 1 } });
+            await page.tick(90000);
+            report({ before, one, both, after: hidden() });
+            """);
+
+        assertThat(out.get("before").toString()).isEqualTo("{\"rows\":[],\"sections\":[]}");
+        assertThat(out.get("one").toString()).as("a manual re-run of Cache is no automatic one")
+            .isEqualTo("{\"rows\":[\"Cache1\"],\"sections\":[]}");
+        assertThat(out.get("both").toString()).isEqualTo("{\"rows\":[\"Cache1\",\"Cache2\"],\"sections\":[\"brokenActs\"]}");
+        assertThat(out.get("after").toString()).isEqualTo("{\"rows\":[],\"sections\":[]}");
+    }
+
+    /**
      * When /api/pending finds that the run tested the PR's head after all, the older-code line goes. The fill moves from
      * its Run RunAll to the next step, here the pair of the blockers on one run.
      */

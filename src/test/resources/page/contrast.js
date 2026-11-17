@@ -37,7 +37,7 @@ const TAG_OF = { button: ['act', 'why', 'suite-rerun', 'mini-btn', 'linklike', '
 // copy button on the failure panel, links and muted text inside a card or the login note. Each fill is paired with
 // every rule of the page whose selector starts with one of its contents, so a new badge is checked on both rows.
 const INSIDE = {
-    '.pr-list li.sel, .pr-list li:hover': ['.pr-link', '.pr-open-any', '.pr-num', '.pr-key', '.pr-ttl', '.pr-badge', '.my-tag'],
+    '.pr-list li.sel, .pr-list li:hover': ['.pr-link', '.pr-open-any', '.pr-num', '.pr-key', '.pr-ttl', '.pr-badge', '.pr-short', '.pr-by'],
     '.login-pr': ['p', '.muted', 'a'],
     '.details': ['pre', '.copy'],
     '.jira-panel': ['.muted', 'a'],

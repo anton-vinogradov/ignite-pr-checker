@@ -23,8 +23,8 @@ class PrOffTheListPageTest {
                 : { body: { title } });
             await page.settle();
         }
-        const visa = () => ({ line: !page.el('visaLine').classList.contains('hidden'),
-            text: page.el('visaLine').textContent, head: page.el('prTitle').textContent,
+        const visa = () => ({ line: !page.el('visaPostGroup').classList.contains('hidden'),
+            text: page.el('visaPostWhy').title, head: page.el('prTitle').textContent,
             html: page.el('prTitle').innerHTML, key: page.run('lastIssueKey') });
         """;
 
@@ -56,7 +56,7 @@ class PrOffTheListPageTest {
             + "target=\"_self\" rel=\"noopener\" title=\"Open IGNITE-29117 in JIRA\">IGNITE-29117</a>");
         assertThat(titled.get("line").asBoolean()).isTrue();
         assertThat(titled.get("text").asText()).as("its verdict, kept at the merge, tells it is merged")
-            .isEqualTo("Visa: none, the PR is merged");
+            .startsWith("Visa: none, the PR is merged. ");
     }
 
     @Test
@@ -68,7 +68,7 @@ class PrOffTheListPageTest {
             """);
 
         assertThat(out.get("key").asText()).isEqualTo("IGNITE-29049");
-        assertThat(out.get("text").asText()).isEqualTo("Visa: will be posted to IGNITE-29049 when the run settles");
+        assertThat(out.get("text").asText()).startsWith("Visa: will be posted to IGNITE-29049 when the run settles. ");
         assertThat(out.get("html").asText()).contains("<a href=\"https://issues.apache.org/jira/browse/IGNITE-29049\" "
             + "target=\"_self\" rel=\"noopener\" title=\"Open IGNITE-29049 in JIRA\">ignite-29049</a>");
     }
@@ -83,7 +83,7 @@ class PrOffTheListPageTest {
             """);
 
         assertThat(out.get("line").asBoolean()).isTrue();
-        assertThat(out.get("text").asText()).isEqualTo("Visa: the PR title names no IGNITE ticket");
+        assertThat(out.get("text").asText()).startsWith("The PR title names no IGNITE ticket, ");
         assertThat(out.get("key").asText()).isEmpty();
     }
 

@@ -29,11 +29,12 @@ class CancelMineTest {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + RUNS + """
             page.route('/api/runs', { body: [ALICE_RUNALL, BOB_RUNALL] });
             await page.load('?pr=13575');
-            const mixed = { runs: page.el('runs').textContent, html: page.el('runs').innerHTML,
+            page.run('toggleStep')(1);
+            const mixed = { runs: page.el('stepPanel').textContent, html: page.el('stepPanel').innerHTML,
                 cancel: !page.el('cancelMine').classList.contains('hidden') };
             page.route('/api/runs', { body: [BOB_RUNALL] });
             await page.tick(15000);
-            report({ mixed, onlyBobs: { runs: page.el('runs').textContent,
+            report({ mixed, onlyBobs: { runs: page.el('stepPanel').textContent,
                 cancel: !page.el('cancelMine').classList.contains('hidden') } });
             """);
 

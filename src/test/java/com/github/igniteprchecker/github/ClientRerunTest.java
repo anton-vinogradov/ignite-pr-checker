@@ -668,7 +668,8 @@ class ClientRerunTest {
 
         Optional<String> shown = standing.runCommentUrl(CLIENT_REPO, PR, RERUN, 0);
         StandingVisas.CommentPost pressed = standing.postClientCommentFromPage("reviewer",
-            SettingsJournal.By.of("laptop", "Firefox on Linux"), CLIENT_REPO, PR, RERUN, 0, fromPage -> "the verdict");
+            SettingsJournal.By.of("laptop", "Firefox on Linux"), CLIENT_REPO, PR, RERUN, 0, verdict(true),
+            fromPage -> "the verdict", null);
 
         assertThat(shown).as("the page offers to update the story's comment").isPresent();
         assertThat(pressed.outcome()).isEqualTo(StandingVisas.CommentPost.EDITED);

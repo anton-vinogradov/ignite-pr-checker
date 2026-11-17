@@ -44,7 +44,8 @@ class HtmlEscapeTest {
             chip.dataset.btid = 'RunAll';
             page.run('document').querySelectorAll = sel => sel === '.suite-live' ? [chip] : [];
             await page.load('?pr=13575');
-            const runs = page.el('runs').innerHTML;
+            page.run('toggleStep')(3);
+            const runs = page.el('stepPanel').innerHTML;
             await page.run('rerunSuites')(['IgniteTests24Java8_Cache'], false, page.el('rerunBtn'));
             const suites = page.el('status').innerHTML;
             await page.run('rerunSuite')('IgniteTests24Java8_Cache', false, page.el('rerunBtn'));

@@ -133,24 +133,26 @@ class GlossaryTest {
         quoted(PAGE, "Suites that never ran", "Broken suites", "Fewer tests than master",
             "Crashed near the end of the run", "Not confirmed: 1 run", "Not confirmed yet", "Recently started failing",
             "Could not be checked", "This PR's tests", "Not blamed on this PR", "Run at top", "Run RunAll",
-            "Cancel my runs", "Notify me", "Post to JIRA", "Post to PR");
-        quoted(PAGE_SCRIPT, "On ci2 now", "✓ No blockers", "No proven blockers yet", "No blockers found — not proven clean",
+            "Cancel my runs", "Notify me", "Verdict to JIRA:", "to PR:");
+        quoted(PAGE_SCRIPT, "On TeamCity", "✓ No blockers", "No proven blockers yet", "No blockers found — not proven clean",
             "No blockers found", "1 run", "new test / no master history", "unverified", "not in any suite", "flaky?",
             "on latest commit", "⚠ old commit", "takes latest commit at start", "● includes an unfinished run",
             " reused from earlier runs", "The verdict is for older code", "♻︎ Auto re-run ",
-            "The checker is processing the results", "Rerun at top", "Visa: posted to ", "when the run settles",
-            "JIRA did not take it, the checker tries again every 10 minutes", "is off in ⚙",
+            "The checker is processing the results", "deciding", "Rerun at top", "Post to JIRA", "Post to PR",
+            "✓ posted", ", verdict changed", "auto when final", "retrying", "waits", "Visa: posted to ",
+            "when the run settles",
+            "JIRA did not take it, the checker tries again every 10 minutes", "Visa: Visa my runs in JIRA is off in ",
             "because JIRA rejected your token",
-            "Visa: waits until you log in again", "Visa: waits until you save your JIRA token in ⚙ again",
-            "Visa: waits for a new JIRA token in ⚙",
+            "Visa: waits until you log in again", "Visa: waits until you save your JIRA token in ",
+            "Visa: waits for a new JIRA token in ",
             "Visa: none for this run, a newer RunAll replaces it",
             "Visa: none, the PR is closed", "Visa: none, the PR is merged",
             "Visa: unknown, TeamCity does not say who started this run",
-            "Visa: the PR title names no IGNITE ticket", "who started this run, has ",
+            "The PR title names no IGNITE ticket", "who started this run, has ",
             "Visa: none, the PR title named no IGNITE ticket when the run settled", "Visa: none, this run was cancelled",
             "could not check whether the PR changed since this run", "it tested older code (see the note at the top)",
             "⚠ Mixed run", "it is a mixed run (see the note at the top)", "Merged", "Closed",
-            "Blockers since the ", " dropped out", " still blocking");
+            "Blockers since the ", " dropped out", " still blocking", "by me", "outdated");
         quoted(COMMON_SCRIPT, "⚖ assertion — likely a real logic failure", "environment/timing — a re-run may pass",
             "⌛ hang — the test ran out of time");
     }
