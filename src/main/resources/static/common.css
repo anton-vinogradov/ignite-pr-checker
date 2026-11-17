@@ -101,7 +101,7 @@ button.quiet:not(:disabled):hover, button.quiet:focus-visible { color: var(--acc
 .menu a:hover, .menu a:focus-visible, .menu a[aria-current="page"],
 #settingsBtn:hover, #settingsBtn:focus-visible, #settingsBtn[aria-current="page"] { text-decoration: underline; text-underline-offset: 0.2em; }
 .menu a[aria-current="page"], #settingsBtn[aria-current="page"] { font-weight: 600; }
-#settingsBtn { font-size: 0.9rem; }
+#settingsBtn { font-size: 0.9rem; margin-left: auto; }
 .topbar-right { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.9rem; margin-left: auto; }
 /* The one accented thing in the bar: the update buttons, there only while there is something to update. */
 .update-btn { display: inline-flex; align-items: center; font: inherit; font-size: 0.85rem; color: var(--on-accent); background: var(--accent); border: 1px solid var(--accent); border-radius: var(--radius); padding: 0.3rem 0.7rem; text-decoration: none; white-space: nowrap; cursor: pointer; }
