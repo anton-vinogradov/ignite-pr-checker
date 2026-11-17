@@ -126,6 +126,54 @@ class PostDialogPageTest {
     }
 
     /**
+     * Given both post buttons pressed while their previews are pending, the JIRA preview opens the dialog first.
+     * When the PR preview arrives, its handler finishes as Cancel and leaves that dialog alone.
+     * Then confirming the dialog posts only the JIRA visa whose text alice read.
+     */
+    @Test
+    void aSecondPreviewLeavesTheOpenDialogAlone() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + ROWS + """
+            await page.load('?pr=13575');
+            await page.settle();
+            let visaPreview, prPreview;
+            page.route('/api/visa/preview', () => new Promise(resolve => { visaPreview = resolve; }));
+            page.route('/api/pr-comment/preview', () => new Promise(resolve => { prPreview = resolve; }));
+            let visaDone = false, prDone = false;
+            page.el('visaPost').focus();
+            page.el('visaPost').onclick().then(() => { visaDone = true; });
+            page.el('prPost').focus();
+            page.el('prPost').onclick().then(() => { prDone = true; });
+            await page.settle();
+            visaPreview({ body: { text: 'JIRA visa text', key: 'visa-key' } });
+            await page.settle();
+            const before = { title: page.el('postDialogTitle').textContent,
+                text: page.el('postDialogText').textContent };
+            prPreview({ body: { text: 'PR verdict text', key: 'pr-key' } });
+            await page.settle();
+            const after = { title: page.el('postDialogTitle').textContent,
+                text: page.el('postDialogText').textContent };
+            const beforePost = { visaDone, prDone, posts: posts() };
+            page.el('postDialogOk').onclick();
+            await page.settle();
+            report({ before, after, beforePost, visaDone, prDone, posts: posts(), open: open() });
+            """);
+
+        assertThat(out.at("/before/title").asText())
+            .isEqualTo("Post the visa of RunAll 9001 to IGNITE-29049?");
+        assertThat(out.at("/before/text").asText()).isEqualTo("JIRA visa text");
+        assertThat(out.get("after")).as("the second preview changes neither the question nor the text")
+            .isEqualTo(out.get("before"));
+        assertThat(out.at("/beforePost/visaDone").asBoolean()).as("the first question still awaits its answer")
+            .isFalse();
+        assertThat(out.at("/beforePost/prDone").asBoolean()).as("the second handler finishes as Cancel").isTrue();
+        assertThat(out.at("/beforePost/posts").size()).isZero();
+        assertThat(out.get("visaDone").asBoolean()).as("the first handler keeps its answer").isTrue();
+        assertThat(out.get("posts").toString())
+            .isEqualTo("[\"/api/visa?pr=13575&build=9001&issue=IGNITE-29049&key=visa-key\"]");
+        assertThat(out.get("open").asBoolean()).isFalse();
+    }
+
+    /**
      * The dialog asks about the PR on screen. alice opens it on #13575 and goes Back to #13461, then opens it again and
      * goes to the start page, then to a project this checker does not have: each time the dialog closes as if she had
      * said no, and nothing is posted.

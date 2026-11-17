@@ -4197,6 +4197,7 @@ function visaQuestion(res, key, v) {
 let postDialogDone = null; // answers the open dialog; null while none is open
 
 function askToPost(opener, [title, by], text, update) {
+    if (postDialogDone) return Promise.resolve(false);
     $('postDialogTitle').textContent = title;
     $('postDialogBy').textContent = by;
     $('postDialogText').textContent = text;
