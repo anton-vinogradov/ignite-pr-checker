@@ -1552,7 +1552,7 @@ function masterSuiteHtml(s) {
         : T('The latest completed run of this suite on master.');
     const when = master.finishedAt ? ' · ' + esc(fmtDay(master.finishedAt * 1000)) : '';
     const url = tcBase ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${master.buildId}` : '';
-    return `<span title="${esc(title)}">${esc(label)}</span>${when}`
+    return `<span${same ? ' class="master-problem"' : ''} title="${esc(title)}">${esc(label)}</span>${when}`
         + (url ? `<a class="ext" href="${esc(url)}" title="${esc(T('Open this master run in TeamCity'))}">TC</a>` : '');
 }
 
@@ -1632,7 +1632,7 @@ function brokenGroupHtml(g, i, kept, sectionRerun) {
         ? `<div class="reason">${T('ci2 could not hand these suites the artifacts of a run they need, though that run passed: a re-run usually gets them.')}</div>`
         : '';
     return `<li class="broken-group"><div class="suite-head"><span class="suite-name">${esc(tr(g.title))}</span>${btns}</div>${why}`
-        + `<div class="reason" id="master-group-${i}">${esc(masterGroupText(g))}</div>`
+        + `<div class="reason master-problem" id="master-group-${i}">${esc(masterGroupText(g))}</div>`
         + fold(T`${suites.length} suites`, `<ul class="tests">${suites.map(s => brokenRow(s, rerun(s), above)).join('')}</ul>`) + '</li>';
 }
 
