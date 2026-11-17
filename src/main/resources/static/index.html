@@ -234,9 +234,10 @@
         .step-caret { display: inline-block; margin-left: 0.35rem; border: 0.25rem solid transparent; border-right-width: 0; border-left-color: currentColor; }
         .step-btn[aria-expanded="true"] .step-caret { transform: rotate(90deg); }
         .step-panel { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.2rem 0.3rem; max-width: 56rem; margin: 0 0 0.5rem; padding: 0.4rem 0.7rem; border-radius: var(--radius); background: var(--fill); font-size: 0.85rem; color: var(--muted); }
-        .step-panel ul { list-style: none; margin: 0; padding: 0; }
+        .step-panel ul { list-style: none; margin: 0; padding: 0; flex-basis: max-content; }
+        .step-panel .run-item > * { white-space: normal; }
         /* The status line of the verdict card. Cancel my runs and the chips' ? stand at its end while the steps show. */
-        #settlingRow { margin-bottom: 0.3rem; }
+        #settlingRow { margin-bottom: 0.3rem; flex-wrap: wrap; }
         .run-acts { flex: none; display: flex; align-items: center; gap: 0.6rem; }
         /* The one filled button on the page: the next step, when there is one. */
         .act.primary, .act.primary:not(:disabled):hover { background: var(--primary-bg); color: var(--on-primary); border-color: var(--primary-bg); }
