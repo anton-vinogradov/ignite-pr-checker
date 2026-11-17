@@ -77,7 +77,7 @@ class TopBarPageTest {
     }
 
     @Test
-    void logOutIsBesideTheNameAndSettingsIsAPageLinkInTheMenu() throws IOException {
+    void settingsIsAtTheRightAfterTheAccount() throws IOException {
         String bar = read("index.html");
         bar = bar.substring(bar.indexOf("<div class=\"topbar-right\">"), bar.indexOf("</header>"));
 
@@ -89,7 +89,9 @@ class TopBarPageTest {
             + "browsers and your options in ⚙ stay.\">Log out</button></span>");
         String page = read("index.html");
         String menu = page.substring(page.indexOf("<nav class=\"menu\""), page.indexOf("</nav>"));
-        assertThat(menu).contains("<a id=\"settingsBtn\" class=\"hidden\" href=\"/settings\"");
+        assertThat(menu).doesNotContain("settingsBtn");
+        assertThat(bar).contains("<a id=\"settingsBtn\" class=\"hidden\" href=\"/settings\"");
+        assertThat(bar.indexOf("id=\"settingsBtn\"")).isGreaterThan(bar.indexOf("id=\"logout\""));
         assertThat(read("flaky.html")).doesNotContain("id=\"session\"", "settingsBtn");
         assertThat(read("status.html")).doesNotContain("id=\"session\"", "settingsBtn");
     }

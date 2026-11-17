@@ -780,8 +780,8 @@ GitHub account linked. There `/run-all` runs one client suite instead of RunAll:
 ## Everything else
 
 - **The top bar**: every page has the same menu with **PRs**, **Flaky tests** and **Status**. The page you are on is
-  underlined. The theme selector is on every page too. Once you are logged in, the bar on the PR page also shows your
-  name with **Log out** beside it, and **⚙ Settings**, which opens the separate account settings page. An operator's name has
+  underlined. The theme selector is on every page too. Once you are logged in, the PR page shows your name with
+  **Log out** beside it. **⚙ Settings** is at the top right and opens the separate account settings page. An operator's name has
   **operator** next to it.
 - **Update**: when a newer release is out, operators see **Update to vX.Y.Z** in the top bar, and a **what's new** link
   to its notes. After a deploy, open tabs show **UI updated — reload**.
