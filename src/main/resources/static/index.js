@@ -2273,7 +2273,7 @@ function standingOf(res) {
 }
 
 function waitingForRunResult(res) {
-    return chainRunning(res) && !res.blockers.length && !(res.watch || []).length;
+    return !res.mergedAt && chainRunning(res) && !res.blockers.length && !(res.watch || []).length;
 }
 
 // The verdict card's heading and the lines under it, by the standing: the words of the PR comment and the visa.

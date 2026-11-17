@@ -15,6 +15,20 @@ import tools.jackson.databind.JsonNode;
  * caveats under it, and takes the one about commits pushed since from /api/pending.
  */
 class VerdictHeadPageTest {
+    /** Given retained live flags on a merged PR, the page still explains that this is a retained verdict. */
+    @Test
+    void aRetainedMergedVerdictDoesNotPromiseToWaitForANewResult() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/analyze', { body: verdict({ blockers: [], standing: 'UNPROVEN', live: true,
+                liveBuildId: 9001, mergedAt: Math.floor(page.now() / 1000) - 86400 }) });
+            await page.load('?pr=13575');
+            report({ head: page.el('verdictText').textContent, help: page.el('verdictHelp').title });
+            """);
+
+        assertThat(out.get("head").asText()).isEqualTo("No blockers found — not proven clean");
+        assertThat(out.get("help").asText()).contains("This PR is merged", "retained verdict");
+    }
+
     /** Given blockers found during the first run, the page reports them while the run continues. */
     @Test
     void aFirstRunKeepsFoundBlockersVisible() throws Exception {
