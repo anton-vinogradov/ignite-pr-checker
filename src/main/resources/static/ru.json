@@ -1430,7 +1430,7 @@
     "Cancel your runs of {0} PR #{1}?": "Отменить твои прогоны PR #{1} проекта {0:tr}?",
     "posts the verdicts of runs you start in any project as PR comments.": "пишет вердикты прогонов, которые ты запускаешь в любом проекте, комментариями в PR.",
     "— posts the verdicts of runs you start in any project to the IGNITE ticket named in the PR title.": "— отправляет вердикты прогонов, которые ты запускаешь в любом проекте, в тикет IGNITE из заголовка PR.",
-    "— re-runs the suites the verdict blames in your Ignite RunAll, or your whole run in Python, PHP, Node.js and Extensions. It puts them at the top of the queue; if ci2 refuses, they stay at the end.": "— перезапускает сьюты, которые вердикт считает виновными, в твоём RunAll Ignite или весь твой прогон Python, PHP, Node.js и проекта «Расширения». Ставит их в начало очереди; если ci2 отказывает, они остаются в конце."
+    "— re-runs failures in your Ignite, Python, PHP, Node.js or Extensions runs at the top; ci2 may refuse priority.": "— перезапускает упавшие сьюты твоих прогонов Ignite, Python, PHP, Node.js или «Расширений» в начале очереди; ci2 может отказать в приоритете."
   },
   "git proxy status": {
     "Git proxy": "Git-прокси",
