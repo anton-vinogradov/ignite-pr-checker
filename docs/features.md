@@ -20,7 +20,7 @@ The PR comment and the JIRA visa link here. The numbers are the defaults in the 
 | **Not confirmed: 1 run** | Blockers that failed the only time they ran on this branch. They still count as blockers: in the count, the PR list badge, the visa and the comment. The heading says that each of these tests failed its only run on this branch. So their rows leave out `failed the only run on this branch`, the `1 run` tag and a strip of one bar. If every blocker failed its only run on this branch, the line **Not confirmed yet** above the Blockers list says so, and this group is not shown. | **Rerun** their suites. A second failure confirms the blocker, a pass drops it. |
 | **Recently started failing** | Tests failing on the code this run tested, with too few runs of it to tell a break from a flake. Not blockers yet. | **Rerun** the suite. If it keeps failing, it becomes a blocker; if it passes, it drops out. |
 | **Could not be checked** | Failed tests that TeamCity errors kept from being compared with master and the branch. Not counted as blockers. | Nothing: the checker tries them again on its own. |
-| **Broken suites** | Suites with no reliable result ([causes](#broken-suite-causes)). A timed-out or crashed suite is listed here, and the checker does not look for blockers in it. Its failures would come from the timeout or crash, and some tests never ran. | Re-run them first: the verdict can't see their tests. A suite that failed to compile has no **Rerun**: it needs a code fix. |
+| **Broken suites** | Suites with no reliable result ([causes](#broken-suite-causes)). A timed-out or crashed suite is listed here, and the checker does not look for blockers in it. Its failures would come from the timeout or crash, and some tests never ran. | Check the latest master result shown beside each suite before rerunning. The verdict can't see their tests. A suite that failed to compile has no **Rerun**: it needs a code fix. |
 | **Fewer tests than master** | Suites that ran at least 10% fewer tests than the same suite on master; only suites with 20 or more tests on master are compared. Tests that never ran can't fail. | If the PR removes tests on purpose, nothing. Otherwise compare the test list with master and re-run. |
 | **Crashed near the end of the run** | Suites that hit a timeout, out-of-memory error or JVM crash after running over 90% of master's tests, with no failure blamed on the PR. Their results stand. Shown folded, with the count in its heading. | Nothing for the PR. |
 | **⚠ Suites that never ran** | The RunAll was interrupted: these suites were cancelled and never ran. The verdict says nothing about them. Suites a person cancelled are folded into one line per person. | **Rerun** them, or run RunAll again. |
@@ -78,6 +78,12 @@ and the visa.
 | `could not check whether the PR changed since this run` | On the page only: GitHub or ci2 did not say whether the PR's head is still the commit the run tested, so the page does not call the verdict clean. The same can happen while fewer than a fifth of the checker's hourly GitHub calls are left: the page then does not ask GitHub about it. | Reload the page in a minute. If the **GitHub API** card on the status page shows fewer than a fifth of the calls left, wait until GitHub resets the hourly limit. |
 
 ### Broken suite causes
+
+For each suite with its own failure, the card shows its latest completed master run, finish time and **TC** link.
+Suites kept from running by a failed dependency are listed under that failure; the comparison belongs to the failed
+dependency. The comparison is fetched when you open or refresh the verdict. **Same reported problems** means TeamCity reported exactly the same nonempty
+set of problem types. It does not prove a shared cause or give the PR a reliable test result. A passing master run,
+missing history and a failed lookup are shown separately.
 
 | Cause | What it means | What to do |
 |---|---|---|
@@ -385,8 +391,8 @@ Your login is all these two options need.
   those a person cancelled.
   A suite that fails while the
   chain still runs is re-run at once, at the top of the queue, up to 10 per chain. After the chain finishes, the suites
-  still blamed are re-run: up to 2 waves per run, the mid-run re-runs counting as the first; up to 10 suites go to the
-  top of the queue, more to the tail. With more than 30 such suites and no re-run yet, nothing is re-run: that looks
+  still blamed are re-run: up to 2 waves per run, the mid-run re-runs counting as the first. All automatic re-runs go to the
+  top of the queue. With more than 30 such suites and no re-run yet, nothing is re-run: that looks
   systemic. If ci2 does not let your account reorder its queue, the re-runs go to its end. Your own identical re-runs
   still in the queue are cancelled first; someone else's stay. A failed Build is re-run alone; suites that failed to
   compile, and the suites a failed Build kept from running, are never re-run.

@@ -373,7 +373,6 @@
     "{0} suite{1}": "{0} {0|сьюта|сьюты|сьют}",
     "{0} suites": "{0} {0|сьюта|сьюты|сьют}",
     "ci2 could not hand these suites the artifacts of a run they need, though that run passed: a re-run usually gets them.": "ci2 не отдал этим сьютам артефакты нужного им прогона, хотя тот прошёл: обычно перезапуск их получает.",
-    "Re-run these first: the verdict above can't see their tests.": "Перезапусти их первыми: вердикт выше не видит их тестов.",
     "The verdict above can't see their tests.": "Вердикт выше не видит их тестов.",
     "A suite that failed to compile has no “Rerun”: it needs a code fix.": "У сьюты, которая не скомпилировалась, нет кнопки «Перезапустить»: ей нужна правка кода.",
     "cancelled by TeamCity": "отменил TeamCity",
@@ -387,7 +386,19 @@
     "Copies a prompt for an AI coding assistant to find why this suite ran fewer tests than on master.": "Копирует промпт для ИИ-ассистента: найти, почему эта сьюта прогнала меньше тестов, чем на master.",
     "This suite's run on TeamCity": "Прогон этой сьюты в TeamCity",
     " · {0}% complete": " · готово на {0}%",
-    " · waited {0} in the queue before starting": " · ждал {0} в очереди до старта"
+    " · waited {0} in the queue before starting": " · ждал {0} в очереди до старта",
+    "The verdict above can't see their tests. Check master before rerunning.": "Вердикт выше не видит их тестов. Перед перезапуском проверь master.",
+    "Master: checking…": "Master: проверяю…",
+    "Master: could not be checked": "Master: не удалось проверить",
+    "Master: no completed run found": "Master: завершённых прогонов не найдено",
+    "Master: same reported problems": "Master: те же типы проблем",
+    "Master: passed": "Master: прошла",
+    "Master: failed": "Master: упала",
+    "Master: result unknown": "Master: результат неизвестен",
+    "TeamCity reports the same problem types. This does not prove the cause is the same or verify the PR’s tests.": "TeamCity сообщает о тех же типах проблем. Это не доказывает общую причину и не подтверждает результат тестов PR.",
+    "The latest completed run of this suite on master.": "Последний завершённый запуск этой сьюты на master.",
+    "Open this master run in TeamCity": "Открыть этот прогон master в TeamCity",
+    "Same reported problems on master: {0} of {1} suites.": "Те же типы проблем на master: {0} из {1} сьют."
   },
   "root causes": {
     "Grouping by failure message…": "Группирую по сообщению о падении…",
@@ -1417,9 +1428,9 @@
     "Queue the “{0}” build chain for {1} PR #{2} at the top of the ci2 queue, ahead of everyone else's builds?": "Поставить цепочку сборок «{0}» для PR #{2} проекта {1:tr} в начало очереди ci2, раньше сборок всех остальных?",
     "Queue the “{0}” build chain for {1} PR #{2}?": "Поставить цепочку сборок «{0}» для PR #{2} проекта {1:tr} в очередь?",
     "Cancel your runs of {0} PR #{1}?": "Отменить твои прогоны PR #{1} проекта {0:tr}?",
-    "— re-runs the suites the verdict blames in your Ignite RunAll, or your whole run in Python, PHP, Node.js and Extensions.": "— перезапускает сьюты, которые вердикт считает виновными, в твоём RunAll Ignite или весь твой прогон Python, PHP, Node.js и проекта «Расширения».",
     "posts the verdicts of runs you start in any project as PR comments.": "пишет вердикты прогонов, которые ты запускаешь в любом проекте, комментариями в PR.",
-    "— posts the verdicts of runs you start in any project to the IGNITE ticket named in the PR title.": "— отправляет вердикты прогонов, которые ты запускаешь в любом проекте, в тикет IGNITE из заголовка PR."
+    "— posts the verdicts of runs you start in any project to the IGNITE ticket named in the PR title.": "— отправляет вердикты прогонов, которые ты запускаешь в любом проекте, в тикет IGNITE из заголовка PR.",
+    "— re-runs the suites the verdict blames in your Ignite RunAll, or your whole run in Python, PHP, Node.js and Extensions. It puts them at the top of the queue; if ci2 refuses, they stay at the end.": "— перезапускает сьюты, которые вердикт считает виновными, в твоём RunAll Ignite или весь твой прогон Python, PHP, Node.js и проекта «Расширения». Ставит их в начало очереди; если ci2 отказывает, они остаются в конце."
   },
   "git proxy status": {
     "Git proxy": "Git-прокси",

@@ -1203,6 +1203,17 @@ public class TcClient {
             ? Optional.empty() : Optional.of(list.build().get(0));
     }
 
+    /** The default branch's newest-started finished suite run, including standalone and failed-to-start runs. */
+    public Optional<TcModel.Build> latestMasterSuiteRun(String token, String buildTypeId) {
+        TcModel.BuildList list = get("suiteRun", token, url("app/rest/builds", query(
+            "locator", "buildType:(id:" + buildTypeId + "),branch:(default:true),state:finished,"
+                + "canceled:false,failedToStart:any,count:1",
+            "fields", "build(id,status,finishDate,problemOccurrences(problemOccurrence(type)))")), TcModel.BuildList.class);
+
+        return list == null || list.build() == null || list.build().isEmpty()
+            ? Optional.empty() : Optional.of(list.build().get(0));
+    }
+
     /**
      * Whether any build of any kind on the PR branch finished after {@code epochSec} — the watermark a
      * verdict was computed against. A chain's verdict is not immutable: re-running one of its suites

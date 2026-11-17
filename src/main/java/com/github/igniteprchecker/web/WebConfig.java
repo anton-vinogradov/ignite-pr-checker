@@ -40,6 +40,7 @@ public class WebConfig implements WebMvcConfigurer {
         registry.addInterceptor(auth).addPathPatterns("/api/token-expiry");
         registry.addInterceptor(auth).addPathPatterns("/api/language");
         registry.addInterceptor(auth).addPathPatterns("/api/your-prs");
+        registry.addInterceptor(auth).addPathPatterns("/api/master-suite");
         registry.addInterceptor(auth).addPathPatterns("/api/client/your-prs", "/api/client/analyze",
             "/api/client/refresh", "/api/client/runs", "/api/client/trigger", "/api/client/cancel-all",
             "/api/client/settling", "/api/client/visa", "/api/client/pr-title", "/api/client/pr-comment");

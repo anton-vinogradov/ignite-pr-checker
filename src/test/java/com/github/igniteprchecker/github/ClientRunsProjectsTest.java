@@ -156,7 +156,7 @@ class ClientRunsProjectsTest {
 
     /**
      * Given an earlier pinned run and moved GitHub heads, when it is rerun,
-     * then the TeamCity request repeats its original revisions and checkout property.
+     * then the TeamCity request repeats its original revisions and checkout property at the top of the queue.
      */
     @ParameterizedTest
     @ValueSource(strings = {"python", "php", "nodejs", "extensions"})
@@ -171,6 +171,8 @@ class ClientRunsProjectsTest {
         runs.rerun("token", spec, 69, first.build().id(), first.pinned());
 
         assertThat(queued).hasSize(2);
+        assertThat(queued.get(0).path("triggeringOptions").path("queueAtTop").asBoolean()).isFalse();
+        assertThat(queued.get(1).path("triggeringOptions").path("queueAtTop").asBoolean()).isTrue();
         assertThat(queued.get(1).path("revisions")).isEqualTo(queued.get(0).path("revisions"));
         assertThat(queued.get(1).path("properties")).isEqualTo(queued.get(0).path("properties"));
         assertThat(queued.get(1).path("branchName")).isEqualTo(queued.get(0).path("branchName"));
