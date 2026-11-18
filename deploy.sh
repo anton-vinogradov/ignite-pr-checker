@@ -48,6 +48,9 @@ ssh "$SSH_HOST" bash -s -- "$VERSION" <<'REMOTE'
 set -euo pipefail
 version="$1"
 cd /opt/ignite-pr-checker
+exec 9>.deploy.lock
+flock -n 9 || { echo "Another deployment is in progress." >&2; exit 1; }
+test ! -e .github-deploy.pending.json || { echo "GitHub Deploy has an unfinished update." >&2; exit 1; }
 env=/etc/ignite-pr-checker/env
 addr="$(sed -n 's/^SERVER_ADDRESS=//p' "$env" | tail -n 1)"
 case "$addr" in ''|0.0.0.0|::) addr=127.0.0.1 ;; esac

@@ -13,6 +13,7 @@ import com.github.igniteprchecker.metrics.ProcessMemory;
 import com.github.igniteprchecker.persist.CacheStore;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.suitefix.SuiteFixService;
+import com.github.igniteprchecker.update.GithubDeployStatus;
 import jakarta.servlet.http.HttpServletRequest;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
@@ -57,6 +58,8 @@ public class StatusController {
     /** Adding PRs' tests to suites; null for a status page without it. */
     private final SuiteFixService suiteFix;
 
+    private final GithubDeployStatus githubDeploy;
+
     private final String version;
 
     /** The commit the running jar was built from, null when the build did not know it. */
@@ -79,13 +82,23 @@ public class StatusController {
             buildProps, null);
     }
 
-    @Autowired
     public StatusController(Metrics metrics, AnalysisCache cache, Warmer warmer, GithubClient github,
         LogTracker logs, ServiceHealth health, com.github.igniteprchecker.tc.RerunTracker tracker,
         com.github.igniteprchecker.jira.StandingVisas standing,
         com.github.igniteprchecker.github.PrCommands commands,
         AuthInterceptor auth, AdminActions admin, CacheStore store, EffectiveConfig config,
         ObjectProvider<BuildProperties> buildProps, SuiteFixService suiteFix) {
+        this(metrics, cache, warmer, github, logs, health, tracker, standing, commands, auth, admin, store, config,
+            buildProps, suiteFix, null);
+    }
+
+    @Autowired
+    public StatusController(Metrics metrics, AnalysisCache cache, Warmer warmer, GithubClient github,
+        LogTracker logs, ServiceHealth health, com.github.igniteprchecker.tc.RerunTracker tracker,
+        com.github.igniteprchecker.jira.StandingVisas standing,
+        com.github.igniteprchecker.github.PrCommands commands,
+        AuthInterceptor auth, AdminActions admin, CacheStore store, EffectiveConfig config,
+        ObjectProvider<BuildProperties> buildProps, SuiteFixService suiteFix, GithubDeployStatus githubDeploy) {
         this.metrics = metrics;
         this.cache = cache;
         this.warmer = warmer;
@@ -100,6 +113,7 @@ public class StatusController {
         this.store = store;
         this.config = config;
         this.suiteFix = suiteFix;
+        this.githubDeploy = githubDeploy;
         BuildProperties bp = buildProps.getIfAvailable();
         this.version = bp != null && bp.getVersion() != null ? bp.getVersion() : "dev";
         this.commit = bp != null ? bp.get("commit") : null;
@@ -165,6 +179,7 @@ public class StatusController {
         out.put("version", version);
         out.put("commit", commit);
         out.put("dirty", dirty);
+        out.put("githubDeploy", githubDeploy == null ? null : githubDeploy.snapshot());
         out.put("uptimeSeconds", metrics.uptimeSeconds());
         out.put("startedAt", ManagementFactory.getRuntimeMXBean().getStartTime());
         out.put("health", report.health());

@@ -1,0 +1,65 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manual-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    name: Build checked JAR
+    if: >-
+      github.repository == 'anton-vinogradov/ignite-pr-checker' &&
+      github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/ci.yml
+    with:
+      deploy-artifact: true
+
+  publish:
+    name: Publish deploy candidate
+    needs: checks
+    if: >-
+      github.repository == 'anton-vinogradov/ignite-pr-checker' &&
+      github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download this run's checked JAR
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.checks.outputs.artifact-id }}
+          path: deploy-jar
+          merge-multiple: true
+
+      - name: Verify the checked JAR
+        id: jar
+        env:
+          EXPECTED_VERSION: ${{ needs.checks.outputs.version }}
+          EXPECTED_SHA256: ${{ needs.checks.outputs.sha256 }}
+        run: |
+          [[ "$EXPECTED_VERSION" =~ ^[0-9]+(\.[0-9]+){1,3}(-[0-9]+-g[0-9a-f]+)?$ ]]
+          [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          printf '%s  %s\n' "$EXPECTED_SHA256" deploy-jar/ignite-pr-checker.jar | sha256sum --check --status
+          printf 'version=%s\nsha256=%s\n' "$EXPECTED_VERSION" "$EXPECTED_SHA256" >> "$GITHUB_OUTPUT"
+
+      # The server binds a candidate to this successful step in the public, attempt-specific jobs API, independently
+      # of editable release assets. The whole Deploy run must succeed before the server may install it.
+      - name: Deploy JAR ${{ steps.jar.outputs.version }} ${{ steps.jar.outputs.sha256 }}
+        run: printf 'Checked deploy candidate for %s\n' "$GITHUB_SHA"
+
+      - name: Publish the server-pull candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$GITHUB_SHA"
+          gh release create "$tag" deploy-jar/ignite-pr-checker.jar \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Deploy $GITHUB_SHA" \
+            --notes "Manual Deploy run $GITHUB_RUN_ID, attempt $GITHUB_RUN_ATTEMPT, commit $GITHUB_SHA." \
+            --prerelease --latest=false
