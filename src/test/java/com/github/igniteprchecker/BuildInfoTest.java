@@ -44,12 +44,20 @@ class BuildInfoTest {
         assertThat(info.getProperty("build.dirty")).isEqualTo(String.valueOf(dirty));
     }
 
-    /** A build uses its release version or its distance from the last release tag, ignoring Deploy tags. */
+    /** Release-based versions ignore Deploy tags; a Deploy build adds its exact Actions run number. */
     @Test
     void aBuildThatIsNoReleaseSaysWhereItStands() throws Exception {
         String version = buildInfo().getProperty("build.version");
         String described = git("describe", "--tags", "--match", "v[0-9]*", "--always").replaceFirst("^v", "");
         boolean dirty = Boolean.parseBoolean(buildInfo().getProperty("build.dirty"));
+
+        String deployNumber = System.getenv("PRC_DEPLOY_NUMBER");
+        if (deployNumber != null && !deployNumber.isBlank()) {
+            assertThat(deployNumber).matches("[1-9][0-9]*");
+            String suffix = "-deploy." + deployNumber;
+            assertThat(version).endsWith(suffix);
+            version = version.substring(0, version.length() - suffix.length());
+        }
 
         assertThat(version).satisfiesAnyOf(
             v -> assertThat(v).matches("\\d+\\.\\d+\\.\\d+"),
