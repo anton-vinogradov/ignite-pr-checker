@@ -1159,7 +1159,6 @@
     "Newly broken": "Недавно сломаны",
     "Passed before, fail every run now. Find the commit.": "Раньше проходили, теперь падают в каждом прогоне. Найди коммит.",
     "None among the tests checked so far.": "Среди уже проверенных тестов таких нет.",
-    "✓ No test broke in the last {0} master runs.": "✓ За {0|последний|последние|последние} {0} {0|прогон|прогона|прогонов} master ни один тест не сломался.",
     "Flaky": "Флаки",
     "Fail some runs, pass others. Make them stable.": "В одних прогонах падают, в других проходят. Сделай их стабильными.",
     "No flaky tests.": "Флаки-тестов нет.",

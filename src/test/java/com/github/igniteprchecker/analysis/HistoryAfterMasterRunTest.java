@@ -26,8 +26,13 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.LongStream;
@@ -116,6 +121,50 @@ class HistoryAfterMasterRunTest {
         stats.harvest();
 
         assertThat(ci.requests).as("a history is read anew once").containsExactly("chains");
+    }
+
+    /**
+     * Given a history request whose answer predates a new master run, when the suite scanner reads that run before
+     * the answer arrives, then the next harvest reads the updated history rather than waiting another day.
+     */
+    @Test
+    void aMasterRunReadDuringAHistoryRequestStillAsksForAnotherRead() throws Exception {
+        test(1, CACHE, FAILED_ONCE);
+        ci.chain(101, ok(11, CACHE, 1));
+        bothRead();
+        ci.histories.put(1L, FAILED_ONCE + "F");
+        ci.chain(102, failed(21, CACHE, 2, 100, 1));
+        suites.scan();
+
+        CompletableFuture<Void> captured = new CompletableFuture<>();
+        CompletableFuture<Void> release = new CompletableFuture<>();
+        ci.beforeHistoryAnswer = () -> {
+            captured.complete(null);
+            release.orTimeout(10, TimeUnit.SECONDS).join();
+        };
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> harvest = worker.submit(stats::harvest);
+            captured.get(10, TimeUnit.SECONDS);
+            ci.histories.put(1L, FAILED_ONCE + "FF");
+            ci.chain(103, failed(31, CACHE, 3, 100, 1));
+            suites.scan();
+            release.complete(null);
+            harvest.get(10, TimeUnit.SECONDS);
+            assertThat(row(1).history().status()).as("the in-flight request completed with its older answer")
+                .isEqualTo(FAILED_ONCE + "F");
+            ci.requests.clear();
+
+            stats.harvest();
+
+            assertThat(ci.requests).containsExactly("history 1");
+            assertThat(row(1).history().status()).isEqualTo(FAILED_ONCE + "FF");
+            assertThat(row(1).attention()).isNotNull();
+        }
+        finally {
+            release.complete(null);
+            worker.shutdownNow();
+        }
     }
 
     /**
@@ -286,14 +335,19 @@ class HistoryAfterMasterRunTest {
 
         assertThat(ci.requests).hasSize(3);
         ci.failing = false;
+        ci.histories.put(1L, PASSES_NOW + "F");
         ci.requests.clear();
         stats.harvest();
         stats.harvest();
 
         assertThat(ci.requests).containsExactlyInAnyOrder("history 1", "history 2", "history 3", "history 4");
+        assertThat(row(1).history().status()).isEqualTo(PASSES_NOW + "F");
     }
 
-    /** The chains read survive a restart, so what they asked for does too: no later cycle would ask again. */
+    /**
+     * Given a history request in flight, when a snapshot is saved before its answer and restored after restart,
+     * then the new instance still reads the requested history: the chain is already recorded as read.
+     */
     @Test
     void whatWasAskedForSurvivesARestart(@TempDir Path dir) throws IOException {
         test(1, CACHE, PASSES_NOW);
@@ -301,7 +355,17 @@ class HistoryAfterMasterRunTest {
         ci.chain(101, ok(11, CACHE, 1));
         suites.scan();
         Path file = dir.resolve("flaky.json");
-        stats.saveTo(file);
+        ci.beforeHistoryAnswer = () -> {
+            try {
+                stats.saveTo(file);
+            }
+            catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        };
+        stats.harvest();
+        ci.beforeHistoryAnswer = () -> {};
+        ci.histories.put(1L, PASSES_NOW + "F");
         ci.requests.clear();
 
         stats = stats();
@@ -310,6 +374,7 @@ class HistoryAfterMasterRunTest {
         stats.saveTo(file);
 
         assertThat(ci.requests).containsExactly("history 1");
+        assertThat(row(1).history().status()).isEqualTo(PASSES_NOW + "F");
         assertThat(mapper.readTree(file.toFile()).get(0).get("rereadAsked").asBoolean()).isFalse();
     }
 
@@ -405,6 +470,11 @@ class HistoryAfterMasterRunTest {
         /** Whether a request for a history gets a 500. */
         private volatile boolean failing;
 
+        /** Lets a test hold an already captured history while the other timer reads a newer chain. */
+        private volatile Runnable beforeHistoryAnswer = () -> {};
+
+        private final ExecutorService workers = Executors.newCachedThreadPool();
+
         private final HttpServer server;
 
         Master() {
@@ -440,8 +510,10 @@ class HistoryAfterMasterRunTest {
                         .put("status", status).put("finishDate", date(i));
                     rows.add(row);
                 }
+                beforeHistoryAnswer.run();
                 answer(ex, failing ? 500 : 200, Map.of("testOccurrence", rows));
             });
+            server.setExecutor(workers);
             server.start();
         }
 
@@ -468,6 +540,7 @@ class HistoryAfterMasterRunTest {
         @Override
         public void close() {
             server.stop(0);
+            workers.shutdownNow();
         }
     }
 

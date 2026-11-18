@@ -343,6 +343,24 @@ class MasterSuitesTest {
     }
 
     /**
+     * Given a suite absent from the newest chain, when startup backfills older chains, then the suite stays off the
+     * board while a current suite keeps its older history even if its latest run was cancelled.
+     */
+    @ParameterizedTest
+    @CsvSource({"SUCCESS, XP", "UNKNOWN, X"})
+    void olderChainsCannotBringBackASuiteAbsentFromTheLatestChain(String currentStatus, String history) {
+        ci.chain(101, failed(11, CACHE, 1, 0, 0, "TC_EXIT_CODE"), failed(12, PDS, 1, 0, 0, "TC_EXIT_CODE"));
+        ci.chain(102, run(21, CACHE, currentStatus, 2, 100, 0));
+        MasterSuites suites = suites(100);
+
+        suites.scan();
+
+        assertThat(ci.requests).containsExactly("chains", "chain 102", "chain 101");
+        assertThat(suites.problemSuites()).extracting(MasterSuites.ProblemSuite::suite).containsExactly(CACHE);
+        assertThat(history(suites, CACHE).status()).isEqualTo(history);
+    }
+
+    /**
      * A run TeamCity gave no finish date of is still a run, shown first as nothing says when it was. The name of a
      * suite is that of its newest run.
      */

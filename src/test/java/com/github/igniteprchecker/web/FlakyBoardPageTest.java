@@ -403,7 +403,7 @@ class FlakyBoardPageTest {
             "▸ Always failing 1").doesNotContain("CacheNearReaderUpdateTest");
     }
 
-    /** A section with no test says so, the first one in green; one whose tests are not all checked makes no promise. */
+    /** Given only tracked tests, when none is newly broken, then the empty section makes no claim about all master. */
     @Test
     void aSectionWithNoTestSaysSo() throws Exception {
         JsonNode out = PageScript.run("flaky.html", BOARD + """
@@ -425,7 +425,8 @@ class FlakyBoardPageTest {
 
         JsonNode noneBroken = out.get("noneBroken");
         assertThat(noneBroken.get("html").asText())
-            .contains("<div class=\"empty calm\">✓ No test broke in the last 100 master runs.</div>");
+            .contains("<div class=\"empty\">None among the tests checked so far.</div>")
+            .doesNotContain("No test broke");
         assertThat(noneBroken.get("chips").asText())
             .startsWith("<a class=\"chip calm\" href=\"#sec-new\" data-jump=\"new\"><b>0</b> newly broken</a>");
         assertThat(noneBroken.get("board").asText()).contains("▾ Newly broken 0", "▾ Always failing 0",
@@ -1143,6 +1144,117 @@ class FlakyBoardPageTest {
         assertThat(out.get("drawnAgain").asText()).contains("Failed in 2 PRs", "<pre>loading…</pre>");
         assertThat(out.get("asked").asInt()).as("one request for the message").isOne();
         assertThat(out.get("shown").asText()).contains("java.lang.AssertionError: IGNITE-627");
+    }
+
+    /**
+     * Given an older passed master run, when the reader opens its row and native history control with the keyboard,
+     * then its dated status-labelled link remains native and a board refresh preserves the history and link focus.
+     */
+    @Test
+    void keyboardHistoryKeepsOlderPassedRunsReachableAcrossRefresh() throws Exception {
+        JsonNode out = PageScript.run("flaky.html", LOADED + """
+            await page.keydown('Enter', control({ row: key(rebalance) }));
+            const el = page.el('flaky'), before = el.innerHTML;
+            const summary = page.el('nativeSummary'), freshSummary = page.el('refreshedNativeSummary');
+            const historyControl = page.el('nativeHistory');
+            summary.dataset.history = freshSummary.dataset.history = historyControl.dataset.historyKey = key(rebalance);
+            let prevented = false;
+            await page.keydown('Enter', summary, { preventDefault() { prevented = true; } });
+            // The browser's native details control opens and emits its toggle event.
+            historyControl.open = true;
+            await page.mouse('toggle', historyControl);
+            el.contains = x => x === summary;
+            el.querySelectorAll = sel => sel === '[data-history]' ? [freshSummary] : [];
+            board([tx, Object.assign({}, rebalance, { prCount: 2, prs: [13655, 13700] }), nearReader]);
+            await page.tick(60000);
+            const summaryFocused = page.run('document').activeElement === freshSummary;
+            const old = page.el('olderPassedLink'), fresh = page.el('refreshedPassedLink');
+            old.dataset.point = fresh.dataset.point = key(rebalance) + '#8901';
+            const writes = el.htmlWrites;
+            await page.keydown('Enter', old, { preventDefault() { prevented = true; } });
+            await page.mouse('click', old);
+            const nativeClick = el.htmlWrites === writes;
+            el.contains = x => x === old;
+            el.querySelectorAll = sel => sel === '[data-point]' ? [fresh] : [];
+            board([tx, Object.assign({}, rebalance, { prCount: 3, prs: [13655, 13700, 13701] }), nearReader]);
+            await page.tick(60000);
+            report({ before, shown: el.innerHTML, prevented, nativeClick, summaryFocused,
+                focused: page.run('document').activeElement === fresh });
+            """);
+
+        String key = "102@IgniteTests24Java8_Cache";
+        assertThat(panel(out.get("before").asText(), key)).contains("<details data-history-key=\"" + key + "\">"
+            + "<summary data-history=\"" + key + "\">Master runs, old → new</summary>")
+            .contains("<a data-point=\"" + key + "#8901\" href=\"https://ci2.example/buildConfiguration/"
+                + "IgniteTests24Java8_Cache/8901?buildTab=tests#testNameId102\" target=\"_self\" rel=\"noopener\" "
+                + "aria-label=\"3 Oct 08:16 · passed · click opens build #8901\">passed · 3 Oct 08:16 · #8901</a>");
+        assertThat(panel(out.get("shown").asText(), key)).contains("<details data-history-key=\"" + key + "\" open>");
+        assertThat(out.get("prevented").asBoolean()).isFalse();
+        assertThat(out.get("nativeClick").asBoolean()).isTrue();
+        assertThat(out.get("summaryFocused").asBoolean()).isTrue();
+        assertThat(out.get("focused").asBoolean()).isTrue();
+    }
+
+    /**
+     * Given an open panel with a loaded PR failure, when the next board reply names a newer occurrence of the same
+     * test, then the panel loads and copies that newer failure instead of reusing the old message.
+     */
+    @Test
+    void aNewOccurrenceReplacesTheLoadedFailureInAnOpenPanel() throws Exception {
+        JsonNode out = PageScript.run("flaky.html", LOADED + """
+            page.route('/api/test-details', url => ({ body: { kind: 'assertion',
+                details: url.includes('occ-pr-new') ? 'new occurrence failure' : 'old occurrence failure' } }));
+            await press({ row: key(rebalance) });
+            const before = page.el('flaky').innerHTML;
+            board([tx, Object.assign({}, rebalance, { occurrenceId: 'occ-pr-new', prCount: 2,
+                prs: [13655, 13700] }), nearReader]);
+            await page.tick(60000);
+            await press({ copy: key(rebalance) });
+            report({ before, shown: page.el('flaky').innerHTML, copied,
+                asked: page.fetches('/api/test-details').map(f => f.url) });
+            """);
+
+        assertThat(panel(out.get("before").asText(), "102@IgniteTests24Java8_Cache"))
+            .contains("old occurrence failure");
+        assertThat(panel(out.get("shown").asText(), "102@IgniteTests24Java8_Cache"))
+            .contains("new occurrence failure", "Failed in 2 PRs").doesNotContain("old occurrence failure");
+        assertThat(out.get("asked").toString()).isEqualTo("[\"/api/test-details?occ=occ-pr-102\","
+            + "\"/api/test-details?occ=occ-pr-new\"]");
+        assertThat(out.get("copied").toString()).isEqualTo("[\"new occurrence failure\"]");
+    }
+
+    /**
+     * Given a slow request for an old occurrence, when a newer board occurrence loads before that request returns,
+     * then the late old reply cannot overwrite or be copied from the newer panel.
+     */
+    @Test
+    void aLateOldOccurrenceReplyCannotOverwriteTheNewFailure() throws Exception {
+        JsonNode out = PageScript.run("flaky.html", LOADED + """
+            let answerOld;
+            page.route('/api/test-details', url => url.includes('occ-pr-new')
+                ? { body: { kind: 'assertion', details: 'new occurrence failure' } }
+                : new Promise(done => { answerOld = () => done({ body: {
+                    kind: 'assertion', details: 'late old occurrence failure' } }); }));
+            await press({ row: key(rebalance) });
+            const loading = page.el('flaky').innerHTML;
+            board([tx, Object.assign({}, rebalance, { occurrenceId: 'occ-pr-new' }), nearReader]);
+            await page.tick(60000);
+            const fresh = page.el('flaky').innerHTML;
+            answerOld();
+            await page.settle();
+            await press({ copy: key(rebalance) });
+            report({ loading, fresh, shown: page.el('flaky').innerHTML, copied,
+                asked: page.fetches('/api/test-details').map(f => f.url) });
+            """);
+
+        assertThat(panel(out.get("loading").asText(), "102@IgniteTests24Java8_Cache")).contains("<pre>loading…</pre>");
+        assertThat(panel(out.get("fresh").asText(), "102@IgniteTests24Java8_Cache"))
+            .contains("new occurrence failure");
+        assertThat(panel(out.get("shown").asText(), "102@IgniteTests24Java8_Cache"))
+            .contains("new occurrence failure").doesNotContain("late old occurrence failure");
+        assertThat(out.get("asked").toString()).isEqualTo("[\"/api/test-details?occ=occ-pr-102\","
+            + "\"/api/test-details?occ=occ-pr-new\"]");
+        assertThat(out.get("copied").toString()).isEqualTo("[\"new occurrence failure\"]");
     }
 
     @Test

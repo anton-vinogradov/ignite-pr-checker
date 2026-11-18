@@ -132,6 +132,8 @@ public class MasterSuites implements SnapshotCache {
     private synchronized void add(long chain, List<TcModel.Build> runs, Map<String, Integer> masterTests) {
         boolean newest = chains.isEmpty() || chain > chains.last();
         for (TcModel.Build run : runs) {
+            if (!newest && !bySuite.containsKey(run.buildTypeId()))
+                continue;
             Character kind = run.buildTypeId() == null ? null : kindOf(run, masterTests.get(run.buildTypeId()));
             if (kind == null)
                 continue;
@@ -144,8 +146,13 @@ public class MasterSuites implements SnapshotCache {
                 flaky.masterRan(run.buildTypeId(), known && "SUCCESS".equals(run.status()));
         }
         // A suite RunAll runs no more would stand with its last runs for good.
-        if (newest && !runs.isEmpty())
-            bySuite.keySet().retainAll(runs.stream().map(TcModel.Build::buildTypeId).collect(Collectors.toSet()));
+        if (newest && !runs.isEmpty()) {
+            var present = runs.stream().map(TcModel.Build::buildTypeId).filter(id -> id != null)
+                .collect(Collectors.toSet());
+            bySuite.keySet().retainAll(present);
+            // A cancelled run still belongs to this chain; its older history may be read next.
+            present.forEach(id -> bySuite.computeIfAbsent(id, key -> new Suite()));
+        }
         chains.add(chain);
     }
 

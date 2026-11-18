@@ -142,6 +142,10 @@ public class FlakyStats implements SnapshotCache {
                 return;
             budget--;
             Entry e = me.getValue();
+            long asked;
+            synchronized (e) {
+                asked = e.rereadVersion;
+            }
             try {
                 TcClient.MasterHistory found = tc.masterTestHistory(token, me.getKey().testId(), me.getKey().suite());
                 List<MasterRun> history = found.runs().stream()
@@ -158,7 +162,8 @@ public class FlakyStats implements SnapshotCache {
                     e.historyWhole = found.whole();
                     e.muted = found.muted();
                     e.masterAnchorAt = System.currentTimeMillis();
-                    e.rereadAsked = false;
+                    if (e.rereadVersion == asked)
+                        e.rereadAsked = false;
                 }
             }
             catch (RuntimeException ex) {
@@ -180,8 +185,10 @@ public class FlakyStats implements SnapshotCache {
                 return;
             synchronized (e) {
                 List<MasterRun> runs = e.masterHistory;
-                if (e.onTheBoard() && (!passed || !runs.isEmpty() && "F".equals(runs.get(runs.size() - 1).status())))
+                if (e.onTheBoard() && (!passed || !runs.isEmpty() && "F".equals(runs.get(runs.size() - 1).status()))) {
                     e.rereadAsked = true;
+                    e.rereadVersion++;
+                }
             }
         });
     }
@@ -437,6 +444,8 @@ public class FlakyStats implements SnapshotCache {
          * chains read are: a restart that forgot it would leave the run unread here for a day.
          */
         boolean rereadAsked;
+        /** A notification during a history request must not be cleared by that request's older answer. */
+        private long rereadVersion;
         /** PR number -> when the test was last seen failing there. */
         final Map<Integer, Long> prSeen = new HashMap<>();
 

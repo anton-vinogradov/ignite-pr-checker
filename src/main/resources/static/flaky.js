@@ -10,7 +10,7 @@ let lastJson = ''; // that answer as last drawn: the poll draws it again only wh
 let reruns = []; // the live re-runs as last polled: a board drawn again between polls shows their chips
 const byKey = new Map(); // a row's key → its test or suite, with what its master runs say (`s`, see stats)
 const failureTexts = new Map(); // occurrenceId → the request for /api/test-details, so a redrawn panel needs no new one
-const failures = new Map(); // a row's key → the failure message of its panel: { state, details, kind }
+const failures = new Map(); // occurrenceId → its panel's failure message: { state, details, kind }
 const chipsShown = new WeakMap(); // a run chip's slot → the chip drawn in it
 // What the reader chose: the filter, the column the flaky tests are sorted by, the rows whose panel is open, the lists
 // shown whole, the causes whose commits are listed and the sections folded. The board is drawn from the answer and
@@ -68,6 +68,7 @@ function take(data) {
     for (const b of [...data.tests || [], ...data.suites || []]) {
         b.s = stats(b.history.status);
         byKey.set(rowKey(b), b);
+        if (ui.open.has(rowKey(b)) && !failures.has(b.occurrenceId)) loadFailure(b);
     }
 }
 
@@ -88,7 +89,6 @@ function render() {
     const problem = suites.filter(matches).sort((a, b) => failsNow(b) - failsNow(a) || b.s.fails - a.s.fails);
     const now = problem.filter(failsNow).length;
     const groups = causes(fresh);
-    const unchecked = tests.filter(b => !b.historyCheckedAt).length;
     // How many tests a group has: all of them when the server cut the group, the matching ones under a filter.
     const size = (rows, all) => !ui.q && all > rows.length ? all : rows.length;
     const sizes = { new: size(fresh, board.attentionCount), flaky: size(flaky, board.flakyCount),
@@ -106,8 +106,7 @@ function render() {
                 + countOf(groups.length, 'cause'),
             T('Passed before, fail every run now. Find the commit.'),
             fresh.length ? cols('new') + groups.map(cause).join('')
-                : ui.q || unchecked ? nothing(T('None among the tests checked so far.'))
-                : `<div class="empty calm">${T`✓ No test broke in the last ${runsWindow} master runs.`}</div>`)
+                : nothing(T('None among the tests checked so far.')))
         + section('suites', T('Problem suites'), String(problem.length),
             T('They end without a test verdict: timeout, crash, out of memory, exit code, compilation error. Their '
                 + 'tests go unreported.'),
@@ -160,7 +159,7 @@ function lastFailureAt(b) {
 }
 
 // The control of the board that has the focus: the data attribute that names what it does, and its value.
-const CONTROLS = ['row', 'copy', 'ai', 'prompt', 'retry', 'sort', 'all', 'fold', 'commits'];
+const CONTROLS = ['row', 'copy', 'ai', 'prompt', 'retry', 'sort', 'all', 'fold', 'commits', 'history', 'point'];
 
 function focusedControl(el) {
     const active = document.activeElement;
@@ -393,7 +392,7 @@ function details(b) {
     const s = b.s, key = rowKey(b), suite = b.suiteName || b.suite, isSuite = kindOf(b) === 'suites';
     const undated = b.history.finished.filter(at => at === null).length;
     const prs = b.prs.map(n => `<a href="/ignite?pr=${n}" target="_self">#${n}</a>`).join(' ');
-    const loaded = (failures.get(key) || {}).state === 'loaded';
+    const loaded = (failures.get(b.occurrenceId) || {}).state === 'loaded';
     const kinds = isSuite ? problemKinds(b) : [];
     return `<div class="details"><p class="full">${esc(suite)}${isSuite ? '' : ' · ' + esc(b.name)}</p><p>${said(b)}</p>`
         + (hasHistory(b) && undated
@@ -416,7 +415,23 @@ function details(b) {
         + (isSuite ? '' : `<span class="lb-live" data-suite="${esc(b.suite)}"></span>`) + '</div>'
         + (b.occurrenceId ? `<p class="muted">${T('Failure message, from its latest failure in a PR:')}</p>`
             + `<pre>${failureHtml(b)}</pre>` : '')
-        + '</div>';
+        + masterHistoryLinks(b) + '</div>';
+}
+
+// The strip's destinations as native links, hidden until the reader asks for the full history.
+function masterHistoryLinks(b) {
+    if (!tcBase || !b.history.status.length) return '';
+    const key = rowKey(b), h = b.history;
+    const links = [...h.status].map((status, i) => {
+        const when = h.finished[i] ? fmtDay(h.finished[i] * 1000) : T('finish date unavailable');
+        const ended = kindOf(b) === 'suites' ? status === 'P' ? T('reported its tests') : kindSaid(status)
+            : status === 'P' ? T('passed') : T('failed');
+        return `<li><a data-point="${esc(key + '#' + h.builds[i])}" href="${esc(masterRunUrl(b, i))}" target="_self" `
+            + `rel="noopener" aria-label="${esc(T('{0} · {1} · click opens build #{2}', when, ended, h.builds[i]))}">`
+            + `${esc(ended)} · ${esc(when)} · #${h.builds[i]}</a></li>`;
+    }).join('');
+    return `<details data-history-key="${esc(key)}"${ui.all.has('history:' + key) ? ' open' : ''}>`
+        + `<summary data-history="${esc(key)}">${T('Master runs, old → new')}</summary><ul>${links}</ul></details>`;
 }
 
 // "Failed in 3 PRs in the last 14 days: #13583 #13655 #13660"; "1 PR" for one.
@@ -471,7 +486,7 @@ function runLink(b, i) {
 // The failure message of a row's panel, as far as it has loaded. It needs a login; without one the panel says so. A
 // load that failed leaves a Retry.
 function failureHtml(b) {
-    const key = rowKey(b), f = failures.get(key) || { state: 'loading' };
+    const key = rowKey(b), f = failures.get(b.occurrenceId) || { state: 'loading' };
     if (f.state === 'loading') return esc(T('loading…'));
     if (f.state === 'nologin') {
         return esc(T('Log in on the main page to see the failure message. Without a login, the AI prompt '
@@ -490,7 +505,7 @@ function failureHtml(b) {
 // Loads the failure message of a row whose panel is open, and draws it: a message that is loading or has loaded is not
 // asked for again; one refused for want of a login, or failed, is asked for at the next opening.
 async function loadFailure(b) {
-    const key = rowKey(b), state = (failures.get(key) || {}).state;
+    const key = b.occurrenceId, state = (failures.get(key) || {}).state;
     if (!b.occurrenceId || state === 'loading' || state === 'loaded') return;
     failures.set(key, { state: 'loading' });
     try {
@@ -757,7 +772,7 @@ document.addEventListener('click', e => {
         + '[data-prompt],[data-retry],.strip,[data-row]');
     if (!el || !board) return;
     const d = el.dataset;
-    if (d.copy !== undefined) copyText(failures.get(d.copy).details, el, T('copy failure'), 1500);
+    if (d.copy !== undefined) copyText(failures.get(byKey.get(d.copy).occurrenceId).details, el, T('copy failure'), 1500);
     else if (d.ai !== undefined) aiFlakyPrompt(el, byKey.get(d.ai));
     else if (d.prompt !== undefined) {
         const [first, ...together] = causes(board.tests.filter(b => b.attention)).find(([key]) => key === d.prompt)[1];
@@ -790,6 +805,13 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     toggleRow(row);
 });
+
+document.addEventListener('toggle', e => {
+    const key = e.target.dataset && e.target.dataset.historyKey;
+    if (key === undefined) return;
+    if (e.target.open) ui.all.add('history:' + key);
+    else ui.all.delete('history:' + key);
+}, true);
 
 // One tooltip for every strip: the run under the pointer, whose bar is lit.
 let lit = null;
