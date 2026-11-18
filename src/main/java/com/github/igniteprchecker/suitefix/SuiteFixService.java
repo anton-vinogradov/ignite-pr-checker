@@ -253,7 +253,8 @@ public class SuiteFixService implements SnapshotCache {
     void fixOnce(int pr, String login, StandingVisas.GhActor actor) {
         GithubClient.PrHead head = github.prHead(pr);
         String sha = head.headSha();
-        if (sha == null || !login.equalsIgnoreCase(head.authorLogin()) || attempts.containsKey(sha)
+        if (sha == null || head.headRepo() == null || !login.equalsIgnoreCase(head.authorLogin())
+            || attempts.containsKey(sha)
             || quiet.contains(sha) || attempts.values().stream().anyMatch(a -> sha.equals(a.pushed())))
             return;
 

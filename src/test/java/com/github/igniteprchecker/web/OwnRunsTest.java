@@ -14,11 +14,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.github.igniteprchecker.Jackson2Defaults;
-import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.SuiteBaseline;
 import com.github.igniteprchecker.analysis.Warmer;
-import com.github.igniteprchecker.analysis.model.AnalysisResult;
-import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.github.GithubClient;
@@ -33,7 +30,6 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,8 +57,6 @@ class OwnRunsTest {
     private static final String HEAD = "a".repeat(40);
 
     private final GithubClient github = mock(GithubClient.class);
-
-    private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
 
     private final List<JsonNode> requests = new CopyOnWriteArrayList<>();
 
@@ -99,7 +93,7 @@ class OwnRunsTest {
 
     private void configureProxy(boolean enabled) {
         ignite = new IgnitePrRuns(github, tc, new GitProxyProperties(enabled), cfg);
-        mvc = MockMvcBuilders.standaloneSetup(new TriggerController(tc, analyzer,
+        mvc = MockMvcBuilders.standaloneSetup(new TriggerController(tc,
                 mock(RerunTracker.class), mock(PrHeads.class), mock(SuiteBaseline.class), cfg,
                 ignite))
             .setControllerAdvice(new ApiExceptionHandler(tc, mock(Warmer.class)))
@@ -229,14 +223,14 @@ class OwnRunsTest {
 
     /** Each launch action pins every requested suite to one fresh head, including replacement reruns. */
     @ParameterizedTest
-    @ValueSource(strings = {"trigger", "rerun-suite", "rerun-suites", "rerun-blockers"})
+    @ValueSource(strings = {"trigger", "rerun-suite", "rerun-suites"})
     void proxiedLaunchesPinAllSuitesToTheFreshHead(String action) throws Exception {
         proxied();
 
         as("alice", post("/api/" + action).param("replace", "true").param("suite", "Cache")
             .param("suites", "Cache,Query")).andExpect(status().isOk());
 
-        assertThat(requests).hasSize(action.equals("rerun-suites") || action.equals("rerun-blockers") ? 2 : 1);
+        assertThat(requests).hasSize(action.equals("rerun-suites") ? 2 : 1);
         for (JsonNode request : requests) {
             assertThat(request.get("branchName").asString()).isEqualTo("pull/13575/head");
             JsonNode revisions = request.get("revisions").get("revision");
@@ -251,7 +245,7 @@ class OwnRunsTest {
 
     /** A GitHub head read failure preserves the runs that each action would otherwise replace. */
     @ParameterizedTest
-    @ValueSource(strings = {"trigger", "rerun-suite", "rerun-suites", "rerun-blockers"})
+    @ValueSource(strings = {"trigger", "rerun-suite", "rerun-suites"})
     void headReadFailureCancelsAndQueuesNothing(String action) throws Exception {
         proxied();
         when(github.prHeadSha(13575)).thenThrow(new ResourceAccessException("GitHub unavailable"));
@@ -300,13 +294,6 @@ class OwnRunsTest {
     private void proxied() {
         configureProxy(true);
         when(github.prHeadSha(13575)).thenReturn(HEAD);
-        TestVerdict cache = new TestVerdict(1L, "CacheTest.test", "Cache", 11L, "Cache", "o1", true, false,
-            "not seen on master", "F", 1);
-        TestVerdict query = new TestVerdict(2L, "QueryTest.test", "Query", 12L, "Query", "o2", true, false,
-            "not seen on master", "F", 1);
-        when(analyzer.analyze(TOKEN, 13575)).thenReturn(Optional.of(new AnalysisResult(13575, 1L,
-            "pull/13575/head", 0, List.of(cache, query), List.of(), List.of(), List.of(), List.of(), 2, 1, false,
-            0, false, 0, 0, 0, 0, 0)));
     }
 
     private ResultActions as(String user, MockHttpServletRequestBuilder req) throws Exception {

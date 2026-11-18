@@ -167,7 +167,7 @@ public class JiraController {
     @GetMapping("/settling")
     public StandingVisas.Phase settling(@RequestParam int pr, @RequestParam long build,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken) {
-        return standing.phase(pr, build, () -> run(tcToken, build));
+        return standing.phase(pr, build, () -> run(tcToken, pr, build));
     }
 
     /**
@@ -189,7 +189,7 @@ public class JiraController {
      * tell.
      */
     public StandingVisas.VisaLine visaLine(int pr, long build, String tcToken, String username) {
-        return standing.visaLine(username, pr, build, () -> run(tcToken, build), merged.verdict(pr).isPresent());
+        return standing.visaLine(username, pr, build, () -> run(tcToken, pr, build), merged.verdict(pr).isPresent());
     }
 
     /**
@@ -197,7 +197,7 @@ public class JiraController {
      * row in the verdict's heading; see {@link StandingVisas#commentLine}.
      */
     StandingVisas.CommentLine commentLine(int pr, long build, String tcToken, String username) {
-        return standing.commentLine(username, pr, build, () -> run(tcToken, build), merged.verdict(pr).isPresent());
+        return standing.commentLine(username, pr, build, () -> run(tcToken, pr, build), merged.verdict(pr).isPresent());
     }
 
     /** Whether the verdict comment of the run {@code build} is current; see {@link StandingVisas#commentCurrent}. */
@@ -206,29 +206,30 @@ public class JiraController {
     }
 
     /**
-     * What TeamCity says of the run. A finished run, and one TeamCity no longer has, are asked about once; a run still
-     * going at most every {@link #RUN_GOING_ASKED_EVERY_MS}.
+     * What TeamCity says of the run {@code build} of the PR. A finished run, and one TeamCity no longer has, are asked
+     * about once; a run still going at most every {@link #RUN_GOING_ASKED_EVERY_MS}. The request names both numbers:
+     * a build of another branch tells nothing of this PR, and taken for its run it had the PR settled, with calls
+     * to GitHub and TeamCity, for any number a request named.
      */
-    StandingVisas.Run run(String tcToken, long build) {
+    StandingVisas.Run run(String tcToken, int pr, long build) {
         long now = clock.getAsLong();
         AskedRun known = runs.get(build);
-        if (known != null && (known.done() || now - known.at() < RUN_GOING_ASKED_EVERY_MS))
-            return known.run();
+        if (known == null || !known.done() && now - known.at() >= RUN_GOING_ASKED_EVERY_MS) {
+            try {
+                known = tc.buildEnd(tcToken, build).map(b -> new AskedRun(runOf(b), b.branchName(),
+                    "finished".equalsIgnoreCase(b.state()), now))
+                    .orElse(new AskedRun(StandingVisas.Run.UNKNOWN, null, false, now));
+            }
+            catch (RestClientResponseException e) {
+                if (e.getStatusCode().value() != 404)
+                    throw e;
 
-        AskedRun asked;
-        try {
-            asked = tc.buildEnd(tcToken, build).map(b -> new AskedRun(runOf(b), "finished".equalsIgnoreCase(b.state()),
-                now)).orElse(new AskedRun(StandingVisas.Run.UNKNOWN, false, now));
+                known = new AskedRun(StandingVisas.Run.UNKNOWN, null, true, now);
+            }
+            runs.put(build, known);
         }
-        catch (RestClientResponseException e) {
-            if (e.getStatusCode().value() != 404)
-                throw e;
 
-            asked = new AskedRun(StandingVisas.Run.UNKNOWN, true, now);
-        }
-        runs.put(build, asked);
-
-        return asked.run();
+        return ("pull/" + pr + "/head").equals(known.branch()) ? known.run() : StandingVisas.Run.UNKNOWN;
     }
 
     static StandingVisas.Run runOf(TcModel.Build b) {
@@ -236,7 +237,7 @@ public class JiraController {
             TcDates.epochSeconds(b.finishDate()) * 1000, "finished".equalsIgnoreCase(b.state()));
     }
 
-    /** TeamCity's answer about a run, asked {@code at}; {@code done}: it no longer changes. */
-    private record AskedRun(StandingVisas.Run run, boolean done, long at) {
+    /** TeamCity's answer about a run and its branch, asked {@code at}; {@code done}: it no longer changes. */
+    private record AskedRun(StandingVisas.Run run, String branch, boolean done, long at) {
     }
 }

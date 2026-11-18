@@ -33,7 +33,7 @@ class TopBarPageTest {
     private static final Pattern HREF = Pattern.compile("\\bhref=\"([^\"]+)\"");
 
     @ParameterizedTest
-    @ValueSource(strings = {"index.html", "flaky.html", "status.html"})
+    @ValueSource(strings = {"index.html", "master.html", "status.html"})
     void everyPageHasTheSameMenuWithItsOwnItemMarked(String page) throws IOException {
         String html = read(page);
         Matcher menu = MENU.matcher(html);
@@ -52,7 +52,7 @@ class TopBarPageTest {
                 current = href.group(1);
             }
         }
-        assertThat(items).containsExactly("/ignite PRs", "/flaky.html Master", "/status.html Status");
+        assertThat(items).containsExactly("/ignite PRs", "/master.html Master", "/status.html Status");
         assertThat(current).isEqualTo(page.equals("index.html") ? "/ignite" : "/" + page);
         assertThat(html).doesNotContain("← App", "status-link", "class=\"pill");
         assertThat(html).contains("<button id=\"reloadPill\" class=\"update-btn hidden\"", "class=\"star-btn\"",
@@ -64,7 +64,7 @@ class TopBarPageTest {
     @Test
     void theSloganStaysOnTheStartPageAndTheSubtitlesGo() throws IOException {
         assertThat(read("index.html")).contains("Ignite PR Checker <small>which tests your PR actually broke</small>");
-        assertThat(read("flaky.html")).contains("Ignite PR Checker</a>").doesNotContain("fix-master queue</small>");
+        assertThat(read("master.html")).contains("Ignite PR Checker</a>").doesNotContain("fix-master queue</small>");
         assertThat(read("status.html")).contains("Ignite PR Checker</a>").doesNotContain("service status</small>");
     }
 
@@ -73,7 +73,7 @@ class TopBarPageTest {
         assertThat(read("status.html")).contains("aria-current=\"page\" title=\"Shows the service status and metrics.\">Status"
             + "<span id=\"healthDot\" class=\"hdot\" title=\"health\"></span></a>");
         assertThat(read("index.html")).doesNotContain("healthDot");
-        assertThat(read("flaky.html")).doesNotContain("healthDot");
+        assertThat(read("master.html")).doesNotContain("healthDot");
     }
 
     @Test
@@ -92,7 +92,7 @@ class TopBarPageTest {
         assertThat(menu).doesNotContain("settingsBtn");
         assertThat(bar).contains("<a id=\"settingsBtn\" class=\"hidden\" href=\"/settings\"");
         assertThat(bar.indexOf("id=\"settingsBtn\"")).isGreaterThan(bar.indexOf("id=\"logout\""));
-        assertThat(read("flaky.html")).doesNotContain("id=\"session\"", "settingsBtn");
+        assertThat(read("master.html")).doesNotContain("id=\"session\"", "settingsBtn");
         assertThat(read("status.html")).doesNotContain("id=\"session\"", "settingsBtn");
     }
 

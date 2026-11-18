@@ -697,8 +697,9 @@ public class BlockerAnalyzer {
 
         ChainCollector.SuiteRun suite = rerun == null ? chains.collectForSuiteRun(token, run)
             : chains.collectForSuiteRun(token, run, rerun);
-        Subject subject = new Subject(0, suite.failedTests().isEmpty() ? t -> List.of()
-            : clientRuns(token, branch, run), true);
+        // The PHP client's PR branch is named as Ignite's are, pull/N/head: its runs are not those of another PR.
+        Subject subject = new Subject(("pull/" + prNumber + "/head").equals(branch) ? prNumber : 0,
+            suite.failedTests().isEmpty() ? t -> List.of() : clientRuns(token, branch, run), true);
         FailedLookups failedLookups = new FailedLookups();
         List<Classified> classified = Parallel.run(bgPool, suite.failedTests().stream()
             .<Callable<Classified>>map(t -> () -> classify(token, subject, t, failedLookups)).toList());

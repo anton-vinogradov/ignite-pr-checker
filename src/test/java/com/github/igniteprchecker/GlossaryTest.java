@@ -41,7 +41,7 @@ class GlossaryTest {
 
     private static final Path PAGE = Path.of("src/main/resources/static/index.html");
 
-    private static final Path FLAKY_PAGE = Path.of("src/main/resources/static/flaky.html");
+    private static final Path FLAKY_PAGE = Path.of("src/main/resources/static/master.html");
 
     private static final Path PAGE_SCRIPT = Path.of("src/main/resources/static/index.js");
 
@@ -98,7 +98,7 @@ class GlossaryTest {
             assertThat(anchors).as(link).contains(link.substring(TOUR_URL.length()));
         }
         assertThat(links).as("the master board and the PR comment keep their documentation links")
-            .contains(TOUR_URL + "the-master-board-flakyhtml", VisaService.GLOSSARY);
+            .contains(TOUR_URL + "the-master-board-masterhtml", VisaService.GLOSSARY);
 
         for (Path tour : List.of(TOUR, TOUR_RU)) {
             Matcher local = LOCAL_LINK.matcher(read(tour));

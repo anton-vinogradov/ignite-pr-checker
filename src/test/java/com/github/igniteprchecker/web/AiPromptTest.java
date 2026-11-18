@@ -429,7 +429,7 @@ class AiPromptTest {
 
     @Test
     void flakyBoardUsesTheConfiguredRepositoryAndFencesTheOutput() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", PageScript.MASTER_BOARD + """
+        JsonNode out = PageScript.run("master.html", PageScript.MASTER_BOARD + """
             page.route('/api/config', { body: { teamcityUrl: 'https://ci2.example/', githubRepo: 'example/ignite-fork' } });
             page.route('/api/test-details', { body: { kind: '', details: 'boom ' + '`'.repeat(3) } });
             const dotnet = test(106, '', 'PPPF', { name: 'Apache.Ignite.Core.Tests.DotNetCore: Apache.Ignite.'
@@ -457,7 +457,7 @@ class AiPromptTest {
     /** A row's fail rate is that of its checked history, not of the runs the PR analyses saw: its prompt says the same. */
     @Test
     void theBoardsPromptNamesTheFailRateOfItsRow() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", PageScript.MASTER_BOARD + """
+        JsonNode out = PageScript.run("master.html", PageScript.MASTER_BOARD + """
             const seenLongAgo = test(107, 'CacheTest.testSeenLongAgo', 'PPPF', { masterFails: 1, masterRuns: 50 });
             board([seenLongAgo]);
             await page.load('');

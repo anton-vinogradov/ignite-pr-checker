@@ -118,7 +118,7 @@ public class PostToPrController {
         if (verdict.refused() != null)
             return refused(verdict.refused(), "no RunAll build found for PR " + pr);
 
-        return previewed(standing.commentPreview(username, tcToken, pr, build, verdict.res(), starter(tcToken, build)));
+        return previewed(standing.commentPreview(username, tcToken, pr, build, verdict.res(), starter(tcToken, pr, build)));
     }
 
     /** The comment a press would put in for the run of the selected client's suite, as {@link #preview} has it. */
@@ -166,7 +166,7 @@ public class PostToPrController {
             return refused(verdict.refused(), "no RunAll build found for PR " + pr);
 
         StandingVisas.CommentPost posted = standing.postCommentFromPage(username, AuthInterceptor.by(req), tcToken, pr,
-            build, verdict.res(), starter(tcToken, build), key);
+            build, verdict.res(), starter(tcToken, pr, build), key);
 
         return answer(posted, pr);
     }
@@ -236,9 +236,9 @@ public class PostToPrController {
      * Who started the RunAll, as TeamCity names them; null when it does not. Their verdict comment mentions them, and
      * the comment Post to PR puts in does too. A TeamCity error only costs the mention.
      */
-    private String starter(String tcToken, long build) {
+    private String starter(String tcToken, int pr, long build) {
         try {
-            return runs.run(tcToken, build).starter();
+            return runs.run(tcToken, pr, build).starter();
         }
         catch (RuntimeException e) {
             log.warn("who started build {} is not known, its verdict from the page mentions nobody: {}", build,

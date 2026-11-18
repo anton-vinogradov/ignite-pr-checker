@@ -1498,7 +1498,7 @@
   "docs links": {
     "https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#standing-options": "https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.ru.md#постоянные-опции",
     "https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#runs-buttons-and-visas": "https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.ru.md#прогоны-кнопки-и-визы",
-    "https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#the-master-board-flakyhtml": "https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.ru.md#доска-master-flakyhtml"
+    "https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#the-master-board-masterhtml": "https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.ru.md#доска-master-masterhtml"
   },
   "client projects": {
     "Project": "Проект",

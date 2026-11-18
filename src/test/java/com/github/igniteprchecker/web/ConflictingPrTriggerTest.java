@@ -12,7 +12,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.SuiteBaseline;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AnalysisProperties;
@@ -54,7 +53,7 @@ class ConflictingPrTriggerTest {
 
         AnalysisProperties cfg = new AnalysisProperties(null, "IgniteTests24Java8_RunAll", null, null, null, null,
             null);
-        mvc = MockMvcBuilders.standaloneSetup(new TriggerController(tc, mock(BlockerAnalyzer.class),
+        mvc = MockMvcBuilders.standaloneSetup(new TriggerController(tc,
                 mock(RerunTracker.class), new PrHeads(github, () -> now), mock(SuiteBaseline.class), cfg))
             .setControllerAdvice(new ApiExceptionHandler(tc, mock(Warmer.class)))
             .build();

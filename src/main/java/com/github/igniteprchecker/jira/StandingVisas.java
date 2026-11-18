@@ -1041,11 +1041,11 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * Whether TeamCity refused the token itself. Only a 401 says so: ci2's firewall answers 403 to
-     * requests it dislikes whatever the token.
+     * requests it dislikes whatever the token. And only TeamCity's own: a call that reads GitHub on the way may fail
+     * with the 401 of the checker's GitHub token, which says nothing of the user's.
      */
     public static boolean tcRefused(Throwable e) {
-        return e instanceof org.springframework.web.client.RestClientResponseException rest
-            && rest.getStatusCode().value() == 401;
+        return e instanceof com.github.igniteprchecker.tc.TcResponseException rest && rest.getStatusCode().value() == 401;
     }
 
     /**
@@ -2921,6 +2921,8 @@ public class StandingVisas implements SnapshotCache {
         }
         catch (RuntimeException e) {
             log.warn("RunAll chains finished since the last sweep not listed, every PR is looked up: {}", e.toString());
+            // The PRs out of the list have no other way to tell a finished run: the next sweep asks for this time too.
+            sweptUpTo = since;
 
             return Finished.UNKNOWN;
         }
@@ -2967,7 +2969,12 @@ public class StandingVisas implements SnapshotCache {
      */
     @EventListener
     void onChainFinished(RerunTracker.ChainFinished ev) {
-        if (!ev.cancelled() && anyRerunner())
+        if (ev.cancelled()) {
+            // No settle takes a cancelled chain: the wave of its mid-run re-runs would wait for one for good.
+            waves.remove(ev.chainBuildId());
+            earlyReruns.remove(ev.chainBuildId());
+        }
+        else if (anyRerunner())
             deciding.merge(ev.pr(), ev.chainBuildId(), Math::max);
         settleSoon(ev.pr());
     }
@@ -3269,11 +3276,14 @@ public class StandingVisas implements SnapshotCache {
         WaveSuites w = WaveSuites.of(res);
         List<String> suites = w.all();
         String what = suitesLabel(w.blockers().size(), w.watch().size(), w.broken().size(), w.cancelled().size());
-        if (!suites.isEmpty() && suites.size() > MAX_SUITES_PER_RERUN && attempts == 0) {
-            // Systemic breakage: re-running dozens of suites would only hammer the shared CI.
-            waves.put(buildId, new Retry(pr, buildId, MAX_RERUNS, what, List.of(),
+        if (suites.size() > MAX_SUITES_PER_RERUN && attempts < MAX_RERUNS) {
+            // Systemic breakage: re-running dozens of suites would only hammer the shared CI. It shows at the end of
+            // the chain as a rule, after the first suites that failed were re-run mid-run: those stay told.
+            waves.put(buildId, new Retry(pr, buildId, MAX_RERUNS, r != null ? r.what() : what,
+                r != null && r.history() != null ? r.history() : List.of(),
                 "(i) Auto re-run skipped: " + suites.size() + " suites is too many — "
-                    + "this looks systemic; fix the cause and re-trigger RunAll.", who, List.of(), "too-many-suites"));
+                    + "this looks systemic; fix the cause and re-trigger RunAll.", who,
+                r != null && r.queued() != null ? r.queued() : List.of(), "too-many-suites"));
 
             return false;
         }

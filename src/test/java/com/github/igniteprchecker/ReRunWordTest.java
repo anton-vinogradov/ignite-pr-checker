@@ -48,7 +48,7 @@ class ReRunWordTest {
 
     @Test
     void thePagesSayReRunAndNameOnlyTheButtonRerun() throws IOException {
-        for (String page : List.of("index", "flaky", "status")) {
+        for (String page : List.of("index", "master", "status")) {
             String html = Files.readString(STATIC.resolve(page + ".html"), UTF_8)
                 .replaceAll("(?s)<script\\b.*?</script>|<style\\b.*?</style>|<!--.*?-->", "");
             assertThat(misused(texts(html))).as(page + ".html").isEmpty();

@@ -55,6 +55,26 @@ class LoginContextTest {
         assertThat(out.get("introHidden").asBoolean()).as("the home page still introduces the checker").isFalse();
     }
 
+    /**
+     * Enter in the token field logged in again while a login was under way; only the button was disabled. Three presses
+     * with a refused token were three refused tries, which is all an address has in ten minutes.
+     */
+    @Test
+    void enterDuringALoginDoesNotLogInAgain() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SIGNED_OUT + """
+            page.route('/api/login', { status: 401, body: { error: 'TeamCity refused the token' } }, 'POST');
+            await page.load('');
+            page.el('token').value = 'tok';
+            for (let i = 0; i < 3; i++)
+                for (const fn of page.el('token').listeners.keydown) fn({ key: 'Enter' });
+            await page.settle();
+            report({ logins: page.fetches('/api/login').length, again: page.el('loginBtn').disabled });
+            """);
+
+        assertThat(out.get("logins").asInt()).isEqualTo(1);
+        assertThat(out.get("again").asBoolean()).as("the button is back for the next try").isFalse();
+    }
+
     /** Given commands off, login leaves settings closed; opening ⚙ offers commands and Link GitHub. */
     @Test
     void aLoginLeavesCommandsInSettings() throws Exception {

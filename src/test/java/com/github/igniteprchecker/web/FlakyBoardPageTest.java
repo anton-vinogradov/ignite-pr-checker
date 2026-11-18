@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -21,7 +23,7 @@ import tools.jackson.databind.JsonNode;
  * in lines is in the panel it opens.
  */
 class FlakyBoardPageTest {
-    private static final Path PAGE = Path.of("src/main/resources/static/flaky.html");
+    private static final Path PAGE = Path.of("src/main/resources/static/master.html");
 
     private static final String BOARD = PageScript.MASTER_BOARD;
 
@@ -83,7 +85,7 @@ class FlakyBoardPageTest {
 
     @Test
     void theBoardHasFourSectionsUnderALineThatCountsThem() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", LOADED + """
+        JsonNode out = PageScript.run("master.html", LOADED + """
             report({ what: page.el('what').textContent, chips: page.el('chips').innerHTML,
                 board: page.el('flaky').textContent, html: page.el('flaky').innerHTML,
                 intro: page.el('intro').textContent, updated: page.el('updated').textContent });
@@ -116,7 +118,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void theNewlyBrokenTestsStandByTheCommitTheyBrokeOn() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             const kill = broke(104, 'KillQueryTest.testCancel', 'P'.repeat(88) + 'F'.repeat(12), 'c27a40e',
                 { suite: 'IgniteTests24Java8_Queries1', suiteName: 'Queries 1' });
             const seldom = broke(105, 'SnapshotTest.testRestore', 'P'.repeat(40) + 'FF' + 'P'.repeat(46) + 'FFF', null);
@@ -143,7 +145,7 @@ class FlakyBoardPageTest {
     /** A commit that broke seven tests would push the other causes off the screen: a group shows five until asked. */
     @Test
     void aCauseShowsFiveTestsUntilAskedForAll() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             board([1, 2, 3, 4, 5, 6, 7].map(i => broke(200 + i, 'Tx' + i + 'Test.testCommit',
                 'P'.repeat(88) + 'F'.repeat(12), 'c27a40e')));
             await page.load('');
@@ -170,7 +172,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void aCauseNamesTheCommitsItIsAmong() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", CAUSES + """
+        JsonNode out = PageScript.run("master.html", CAUSES + """
             const html = page.el('flaky').innerHTML, text = page.el('flaky').textContent;
             await press({ commits: 'commit:f93b6d2' });
             board([...tests, rebalance], { causes });
@@ -221,7 +223,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void aCommitTitleIsShownAsText() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             board([tx], { causes: [commitsOf('c27a40e', 'b1b1b1b',
                 ['IGNITE-1 Fix <img src=x onerror=alert(1)> & "the" \\'rest\\''])] });
             await page.load('');
@@ -240,7 +242,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void aRowDrawsABarARunWithTheLatestAtTheRight() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             const young = test(107, 'MemoryQuotasTest.testJoin', 'PFP'.repeat(10) + 'F');
             board([rebalance, young]);
             await page.load('');
@@ -269,7 +271,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void aBarNamesItsRunAndOpensItInTeamCity() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", LOADED + STRIP + """
+        JsonNode out = PageScript.run("master.html", LOADED + STRIP + """
             const tip = page.el('tip');
             await page.mouse('mousemove', strip, { clientX: 100 + 298 });
             const overLatest = { tip: tip.textContent, shown: !tip.classList.contains('hidden'),
@@ -304,7 +306,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void aTestThatAlwaysFailsShowsItsRunsOnlyWhenOneOfThemPassed() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             const young = always(109, 'YoungTest.testIt', 'F'.repeat(14), { history: history('F'.repeat(14), true) });
             const cut = always(111, 'CutTest.testIt', 'F'.repeat(14));
             const fluke = always(110, 'FlukeTest.testIt', 'F'.repeat(87) + 'P' + 'F'.repeat(12));
@@ -339,7 +341,7 @@ class FlakyBoardPageTest {
     /** The flaky tests come by fail rate, then by PRs; a click on a heading puts them by that column. */
     @Test
     void theFlakyTestsAreSortedByTheHeadingClicked() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             const often = test(120, 'OftenTest.testIt', 'PF'.repeat(50), { prCount: 1, prs: [13655] });
             const rarely = test(121, 'RarelyTest.testIt', 'P'.repeat(80) + 'F' + 'P'.repeat(19), { prCount: 9,
                 prs: [1, 2, 3, 4, 5, 6, 7, 8, 9] });
@@ -370,7 +372,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void theFilterLeavesTheRowsOfASuiteOrATest() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             const kill = broke(104, 'KillQueryTest.testCancel', 'P'.repeat(88) + 'F'.repeat(12), 'c27a40e',
                 { suite: 'IgniteTests24Java8_Queries1', suiteName: 'Queries 1' });
             board([tx, kill, rebalance, nearReader]);
@@ -406,7 +408,7 @@ class FlakyBoardPageTest {
     /** Given only tracked tests, when none is newly broken, then the empty section makes no claim about all master. */
     @Test
     void aSectionWithNoTestSaysSo() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             board([rebalance]);
             await page.load('');
             await press({ fold: 'always' });
@@ -446,7 +448,7 @@ class FlakyBoardPageTest {
 
     @Test
     void anEmptyBoardSaysWhatFillsIt() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", LOADED + """
+        JsonNode out = PageScript.run("master.html", LOADED + """
             board([]);
             await page.tick(60000);
             report({ board: page.el('flaky').textContent, chips: page.el('chips').textContent,
@@ -466,7 +468,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void aTestThatFailsMoreOftenNowSaysItsLatestRate() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             // `fails` of the 75 runs before the last 25, then `recent` of those: the failures first, a pass last.
             const runs = (earlier, fails, recent) => 'F'.repeat(fails) + 'P'.repeat(earlier - fails)
                 + 'F'.repeat(recent) + 'P'.repeat(25 - recent);
@@ -495,7 +497,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void aRowOpensItsPanel() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", LOADED + """
+        JsonNode out = PageScript.run("master.html", LOADED + """
             await press({ row: key(tx) });
             const row = control({ row: key(rebalance) });
             await page.keydown('Enter', row);
@@ -547,7 +549,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void aRunWithoutAFinishDateIsShownAndThePanelSaysTheTransitionIsUnknown() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             const undated = test(102, 'RebalanceTest.testRebalance', 'PPPF'.repeat(25));
             undated.history.finished[0] = null;
             board([undated]);
@@ -567,7 +569,7 @@ class FlakyBoardPageTest {
     /** A board of 40 rows a group says how many tests the group has when it holds more. */
     @Test
     void aGroupCutShortSaysHowManyItHas() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             board([tx, rebalance, nearReader], { attentionCount: 44, flakyCount: 41, brokenCount: 1 });
             await page.load('');
             report({ board: page.el('flaky').textContent, chips: page.el('chips').textContent });
@@ -578,10 +580,47 @@ class FlakyBoardPageTest {
         assertThat(out.get("chips").asText()).isEqualTo("44 newly broken0 problem suites41 flaky1 always failing");
     }
 
+    /**
+     * "Flaky 40 of 364" offered "Show all 40", and the filter looked among those 40: the server cuts each group, and
+     * the page asked for nothing more. "Show all" names the size of the group and asks for the whole board, and so
+     * does a filter; the polls after it ask for the whole one too.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"await press({ all: 'flaky' });", """
+        page.el('q').value = 'Flaky41Test';
+        page.el('q').listeners.input[0]({ target: page.el('q') });
+        await page.settle();
+        """})
+    void aGroupTheServerCutIsLoadedWholeOnceAskedFor(String ask) throws Exception {
+        JsonNode out = PageScript.run("master.html", BOARD + """
+            const flaky = Array.from({ length: 42 }, (_, i) => test(300 + i, 'Flaky' + i + 'Test.testIt', 'PPPF'));
+            page.route('/api/top-flaky', url => ({ body: { tracked: 42, prDays: 14, window: 100, attentionCount: 0,
+                flakyCount: 42, brokenCount: 0, tests: url.includes('whole=true') ? flaky : flaky.slice(0, 40),
+                suites: [], suiteKinds: KINDS, suiteChains: 100 } }));
+            await page.load('');
+            const shown = () => ({ rows: page.el('flaky').innerHTML.split('<div class="row').length - 1,
+                head: page.el('flaky').textContent.match(/Flaky \\d+( of \\d+)?/)[0],
+                offered: (page.el('flaky').textContent.match(/Show all \\d+/) || [''])[0],
+                last: page.el('flaky').textContent.includes('Flaky41Test') });
+            const cut = shown();
+            """ + ask + """
+            const whole = shown();
+            await page.tick(60000);
+            report({ cut, whole, asked: page.fetches('/api/top-flaky').map(f => f.url) });
+            """);
+
+        assertThat(out.get("cut").toString())
+            .isEqualTo("{\"rows\":15,\"head\":\"Flaky 40 of 42\",\"offered\":\"Show all 42\",\"last\":false}");
+        assertThat(out.get("whole").get("last").asBoolean()).isTrue();
+        assertThat(out.get("whole").get("offered").asText()).isEmpty();
+        assertThat(out.get("asked").toString()).isEqualTo("[\"/api/top-flaky?limit=40\","
+            + "\"/api/top-flaky?limit=40&whole=true\",\"/api/top-flaky?limit=40&whole=true\"]");
+    }
+
     /** A list of 16 flaky tests shows 15 until asked; a chip unfolds the section it jumps to. */
     @Test
     void aLongListIsCutAndAChipUnfoldsItsSection() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             board([...Array.from({ length: 16 }, (_, i) => test(300 + i, 'Flaky' + i + 'Test.testIt', 'PF'.repeat(i + 1))),
                 nearReader]);
             await page.load('');
@@ -612,7 +651,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void theTimesGoOnWhileTheBoardStands() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", LOADED + """
+        JsonNode out = PageScript.run("master.html", LOADED + """
             const cell = page.el('cell');
             cell.dataset.ago = String(rebalance.history.finished[99] * 1000);
             page.el('flaky').querySelectorAll = sel => sel === '[data-ago]' ? [cell] : [];
@@ -636,7 +675,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void theProblemSuitesStandBetweenTheNewlyBrokenAndTheFlaky() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", SUITES + """
+        JsonNode out = PageScript.run("master.html", SUITES + """
             report({ chips: page.el('chips').innerHTML, board: page.el('flaky').textContent,
                 html: page.el('flaky').innerHTML });
             """);
@@ -681,7 +720,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void aSuitesRowOpensItsPanel() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", SUITES + """
+        JsonNode out = PageScript.run("master.html", SUITES + """
             for (const s of [cpp, snapshots, queries]) await press({ row: key(s) });
             const html = page.el('flaky').innerHTML;
             board([rebalance], { suites: [pds, queries, snapshots,
@@ -726,7 +765,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void theSuitesSectionSaysWhatIsKnownWhenItIsEmpty() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", SUITES + """
+        JsonNode out = PageScript.run("master.html", SUITES + """
             const shown = () => ({ chips: page.el('chips').innerHTML, board: page.el('flaky').textContent });
             board([rebalance], { suites: [pds] });
             await page.tick(60000);
@@ -756,7 +795,7 @@ class FlakyBoardPageTest {
     /** The filter leaves the suites whose name holds the words: a tag is not a name. Eleven suites show ten. */
     @Test
     void theFilterAndTheCutApplyToTheSuites() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", SUITES + """
+        JsonNode out = PageScript.run("master.html", SUITES + """
             const type = async text => {
                 page.el('q').value = text;
                 page.el('q').listeners.input[0]({ target: page.el('q') });
@@ -789,7 +828,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void aSuitesBarNamesTheKindOfProblemAndOpensTheRun() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", SUITES + """
+        JsonNode out = PageScript.run("master.html", SUITES + """
             const strip = control({ id: key(queries) });
             strip.classList.add('strip');
             strip.getBoundingClientRect = () => ({ left: 100, top: 300, width: 299 });
@@ -825,7 +864,7 @@ class FlakyBoardPageTest {
                 + "<i class=\"lp\"></i>passed <i class=\"lf\"></i>failed</span>")
             .contains("<input type=\"search\" id=\"q\" placeholder=\"Filter by suite or test\" "
                 + "aria-label=\"Filter by suite or test\">")
-            .contains("features.md#the-master-board-flakyhtml\" target=\"_self\" rel=\"noopener\" "
+            .contains("features.md#the-master-board-masterhtml\" target=\"_self\" rel=\"noopener\" "
                 + "title=\"Opens the docs on GitHub that explain how this board works.\"")
             .contains("<div class=\"updated\"><span id=\"updated\"></span><span id=\"intro\">Tests muted on TeamCity are "
                 + "not shown.</span></div>")
@@ -857,7 +896,7 @@ class FlakyBoardPageTest {
 
     @Test
     void theButtonsCopyThePromptOfTheRowsSection() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", LOADED + """
+        JsonNode out = PageScript.run("master.html", LOADED + """
             const ai = control({ ai: key(nearReader) });
             await page.mouse('click', ai);
             await press({ ai: key(rebalance) });
@@ -893,7 +932,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void thePromptOfACauseNamesAllItsTests() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             const kill = broke(104, 'KillQueryTest.testCancel', 'P'.repeat(88) + 'F'.repeat(12), 'c27a40e',
                 { suite: 'IgniteTests24Java8_Queries1', suiteName: 'Queries 1' });
             const other = broke(106, 'OtherTest.testIt', 'P'.repeat(97) + 'FFF', null);
@@ -926,7 +965,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void thePromptOfACauseNamesItsCommits() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", CAUSES + """
+        JsonNode out = PageScript.run("master.html", CAUSES + """
             for (const cause of ['commit:f93b6d2', 'commit:77f1e23', 'commit:5d20c8f', 'test:7@IgniteTests24Java8_Cache'])
                 await press({ prompt: cause });
             report({ listed: copied[0], notListed: copied[1], sameCommit: copied[2], noCommit: copied[3] });
@@ -968,7 +1007,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void aRunningReRunUpdatesItsChipAndLeavesTheBoardAlone() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             let polls = 0;
             page.route('/api/reruns', () => ({ body: [{ buildTypeId: 'IgniteTests24Java8_Cache', pr: 13999,
                 webUrl: 'https://ci2.example/build/9500', state: 'running', pct: 40, leftSec: -1, startSec: -1,
@@ -998,7 +1037,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void aFocusedReRunChipKeepsTheFocus() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             let polls = 0;
             page.route('/api/reruns', () => ({ body: [{ buildTypeId: 'IgniteTests24Java8_Cache', pr: 13999,
                 webUrl: 'https://ci2.example/build/9500', state: 'running', pct: 40 + polls, leftSec: -1,
@@ -1026,7 +1065,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void theBoardIsAskedForOnceAMinuteAndTheReRunsEveryPoll() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             let polls = 0;
             page.route('/api/reruns', () => ({ body: [{ buildTypeId: 'IgniteTests24Java8_Cache', pr: 13999,
                 webUrl: 'https://ci2.example/build/9500', state: 'running', pct: 40, leftSec: -1, startSec: -1,
@@ -1061,7 +1100,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void aFailedPollKeepsWhatIsShownAndTheNextOneAsksAgain() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             const running = { body: [{ buildTypeId: 'IgniteTests24Java8_Cache', pr: 13999,
                 webUrl: 'https://ci2.example/build/9500', state: 'running', pct: 40, leftSec: -1, startSec: -1,
                 waitedSec: -1, elapsedSec: 120 }] };
@@ -1101,7 +1140,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void aNewListKeepsTheOpenPanelAndTheFocus() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", LOADED + """
+        JsonNode out = PageScript.run("master.html", LOADED + """
             const doc = page.run('document'), el = page.el('flaky');
             const old = control({ row: key(rebalance) }), fresh = control({ row: key(rebalance) });
             await page.mouse('click', old);
@@ -1128,7 +1167,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void aPanelDrawnAgainWhileItsMessageLoadsSendsNoSecondRequest() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", LOADED + """
+        JsonNode out = PageScript.run("master.html", LOADED + """
             let answer;
             page.route('/api/test-details', () => new Promise(done => { answer = () => done({ body: {
                 kind: 'assertion', details: 'java.lang.AssertionError: IGNITE-627' } }); }));
@@ -1156,7 +1195,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void keyboardHistoryKeepsOlderPassedRunsReachableAcrossRefresh() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", LOADED + """
+        JsonNode out = PageScript.run("master.html", LOADED + """
             await page.keydown('Enter', control({ row: key(rebalance) }));
             const el = page.el('flaky'), before = el.innerHTML;
             const summary = page.el('nativeSummary'), freshSummary = page.el('refreshedNativeSummary');
@@ -1205,7 +1244,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void aNewOccurrenceReplacesTheLoadedFailureInAnOpenPanel() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", LOADED + """
+        JsonNode out = PageScript.run("master.html", LOADED + """
             page.route('/api/test-details', url => ({ body: { kind: 'assertion',
                 details: url.includes('occ-pr-new') ? 'new occurrence failure' : 'old occurrence failure' } }));
             await press({ row: key(rebalance) });
@@ -1233,7 +1272,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void aLateOldOccurrenceReplyCannotOverwriteTheNewFailure() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", LOADED + """
+        JsonNode out = PageScript.run("master.html", LOADED + """
             let answerOld;
             page.route('/api/test-details', url => url.includes('occ-pr-new')
                 ? { body: { kind: 'assertion', details: 'new occurrence failure' } }
@@ -1263,7 +1302,7 @@ class FlakyBoardPageTest {
 
     @Test
     void aTestThatBrokeRecentlyIsNotToldARerunMayPass() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             page.route('/api/test-details', { body: { kind: 'environment', details: 'Node has not joined' } });
             const recent = always(104, 'TxTest.testRollback', 'P'.repeat(2) + 'FP'.repeat(43) + 'F'.repeat(12),
                 { masterFails: 14 });
@@ -1285,7 +1324,7 @@ class FlakyBoardPageTest {
     /** Without a login the panel says what needs one, and the prompt still copies, without the failure output. */
     @Test
     void withoutALoginThePanelSaysSoAndThePromptStillCopies() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", LOADED + """
+        JsonNode out = PageScript.run("master.html", LOADED + """
             page.route('/api/test-details', { status: 401, body: { error: 'Unauthorized' } });
             await press({ row: key(rebalance) });
             await press({ ai: key(rebalance) });
@@ -1308,7 +1347,7 @@ class FlakyBoardPageTest {
     /** A load that failed leaves a Retry and loads again on it; "(no failure message available)" was a lie then. */
     @Test
     void aFailedLoadLeavesARetry() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", LOADED + """
+        JsonNode out = PageScript.run("master.html", LOADED + """
             page.route('/api/test-details', { status: 502, body: {} });
             await press({ row: key(rebalance) });
             const failed = page.el('flaky').innerHTML;
@@ -1330,7 +1369,7 @@ class FlakyBoardPageTest {
      */
     @Test
     void theCopyButtonCopiesTheMessageOnceItIsThere() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             board([rebalance, test(105, 'BareTest.testIt', 'PF', { occurrenceId: '' })]);
             await page.load('');
             await press({ row: key(rebalance) });
@@ -1351,7 +1390,7 @@ class FlakyBoardPageTest {
 
     /** The board's chip while PR 13655 re-runs the suite all its rows are in; {@code run} gives state and timings. */
     private static String boardWithReRun(String run) throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + "page.route('/api/reruns', { body: [{ buildTypeId: "
+        JsonNode out = PageScript.run("master.html", BOARD + "page.route('/api/reruns', { body: [{ buildTypeId: "
             + "'IgniteTests24Java8_Cache', pr: 13655, webUrl: 'https://ci2.example/build/9400', " + run + " }] });"
             + "board([tx, rebalance, nearReader]);" + SLOT + """
             await page.load('');

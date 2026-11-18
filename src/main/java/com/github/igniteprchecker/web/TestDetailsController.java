@@ -3,11 +3,14 @@ package com.github.igniteprchecker.web;
 import com.github.igniteprchecker.analysis.FailureDetails;
 import com.github.igniteprchecker.analysis.FailureOutput;
 import java.util.Map;
+import java.util.regex.Pattern;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Serves a single failed test's details (message/stack trace, cut to size) for the failure panel of a test row
@@ -17,6 +20,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api")
 public class TestDetailsController {
+    /**
+     * An occurrence as TeamCity names it. The parameter is sent to TeamCity as a locator, and another locator may
+     * ask for the output of every test of a build, which the heap would hold whole.
+     */
+    private static final Pattern OCCURRENCE = Pattern.compile("build:\\(id:\\d+\\),id:\\d+|id:\\d+,build:\\(id:\\d+\\)");
+
     private final FailureDetails failures;
 
     public TestDetailsController(FailureDetails failures) {
@@ -26,6 +35,9 @@ public class TestDetailsController {
     @GetMapping("/test-details")
     public Map<String, String> details(@RequestParam String occ,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
+        if (!OCCURRENCE.matcher(occ).matches())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid occurrence ID");
+
         String details = failures.of(token, occ);
         FailureOutput.Kind kind = FailureOutput.kind(details);
 

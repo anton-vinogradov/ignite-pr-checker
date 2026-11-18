@@ -338,7 +338,7 @@ class FlakyMasterHistoryTest {
         FlakyStats stats = stats();
         stats.harvest();
 
-        JsonNode answer = mapper.valueToTree(new LeaderboardController(stats, suites(), analysis).topFlaky(40));
+        JsonNode answer = mapper.valueToTree(new LeaderboardController(stats, suites(), analysis).topFlaky(40, false));
 
         assertThat(answer.get("window").asInt()).isEqualTo(100);
         assertThat(answer.get("attentionCount").asInt()).isEqualTo(1);
@@ -424,7 +424,7 @@ class FlakyMasterHistoryTest {
         FlakyStats stats = stats();
         stats.harvest();
         stats.harvest();
-        JsonNode answer = mapper.valueToTree(new LeaderboardController(stats, suites(), analysis).topFlaky(1));
+        JsonNode answer = mapper.valueToTree(new LeaderboardController(stats, suites(), analysis).topFlaky(1, false));
 
         assertThat(answer.get("tests")).extracting(test -> test.get("suite").asText()).containsExactly(SUITE);
         assertThat(answer.get("causes").toString()).isEqualTo("[{\"commit\":\"head\",\"base\":\"late\",\"total\":21,"
@@ -432,6 +432,20 @@ class FlakyMasterHistoryTest {
             + "{\"sha\":\"between\",\"title\":\"IGNITE-1 Tidy up (#1)\"}]}]");
         verify(github).commitsBetween("late", "head", 20);
         verifyNoMoreInteractions(github);
+    }
+
+    /** A reader who asks for a whole group gets the board whole, whatever the limit of a poll. */
+    @Test
+    void theWholeBoardIsNotCut() {
+        observed(Map.of(SUITE, BROKE, SIBLING, BROKE));
+        ci.add(SUITE, BROKE);
+        ci.add(SIBLING, BROKE);
+        FlakyStats stats = stats();
+        stats.harvest();
+        LeaderboardController board = new LeaderboardController(stats, suites(), analysis);
+
+        assertThat(mapper.valueToTree(board.topFlaky(1, false)).get("tests")).hasSize(1);
+        assertThat(mapper.valueToTree(board.topFlaky(1, true)).get("tests")).hasSize(2);
     }
 
     /** After a restart every cause is to ask for: a cycle asks for three, and the next one for the rest. */

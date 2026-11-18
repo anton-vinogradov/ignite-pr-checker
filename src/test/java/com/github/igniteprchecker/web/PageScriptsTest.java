@@ -41,7 +41,7 @@ class PageScriptsTest {
         Pattern.compile("^(?:async function|function|const|let|var) ([A-Za-z0-9_$]+)", Pattern.MULTILINE);
 
     @ParameterizedTest
-    @ValueSource(strings = {"index.html", "flaky.html", "status.html"})
+    @ValueSource(strings = {"index.html", "master.html", "status.html"})
     void aPageRunsNoInlineScript(String page) throws IOException {
         String html = Files.readString(STATIC.resolve(page));
 
@@ -67,7 +67,7 @@ class PageScriptsTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"index.html", "flaky.html", "status.html"})
+    @ValueSource(strings = {"index.html", "master.html", "status.html"})
     void aPageAppliesTheThemeInItsHeadAndLoadsTheSharedHelpersBeforeItsOwnScript(String page) throws IOException {
         String html = Files.readString(STATIC.resolve(page));
 
@@ -80,7 +80,7 @@ class PageScriptsTest {
         List<Path> scripts = scripts();
 
         assertThat(scripts).extracting(p -> p.getFileName().toString())
-            .contains("theme.js", "common.js", "index.js", "flaky.js", "status.js");
+            .contains("theme.js", "common.js", "index.js", "master.js", "status.js");
         for (Path script : scripts) {
             String js = Files.readString(script);
             assertThat(found(INLINE_HANDLER, js)).as("inline event handlers in " + script).isEmpty();
@@ -89,7 +89,7 @@ class PageScriptsTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"index.js", "flaky.js", "status.js"})
+    @ValueSource(strings = {"index.js", "master.js", "status.js"})
     void aPageScriptKeepsNoCopyOfASharedHelper(String script) throws IOException {
         Set<String> shared = topLevelNames(STATIC.resolve("common.js"));
         Set<String> own = topLevelNames(STATIC.resolve(script));

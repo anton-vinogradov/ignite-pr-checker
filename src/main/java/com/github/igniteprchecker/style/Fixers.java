@@ -4,6 +4,7 @@ import com.github.igniteprchecker.style.CheckstyleRunner.Violation;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -20,6 +21,12 @@ final class Fixers {
         "public", "protected", "private", "abstract", "default", "static", "final", "transient",
         "volatile", "synchronized", "native", "strictfp");
 
+    /** The rules whose fix is made at the column checkstyle names. */
+    private static final Set<String> BY_COLUMN = Set.of("WhitespaceAfter", "NoWhitespaceBefore", "NoWhitespaceAfter",
+        "MethodParamPad", "SingleSpaceSeparator", "WhitespaceAround");
+
+    private static final Pattern NOT_FOLLOWED = Pattern.compile("^'(.+)' is not followed");
+
     private Fixers() {
     }
 
@@ -35,13 +42,20 @@ final class Fixers {
         boolean redoImports = violations.stream()
             .anyMatch(v -> v.rule().equals("CustomImportOrder") || v.rule().equals("RedundantImport"));
 
+        // Of two fixes at one column the one made after the token goes first: it leaves the token where it is.
         List<Violation> ordered = violations.stream()
-            .sorted(Comparator.comparingInt(Violation::line).thenComparingInt(Violation::col).reversed())
+            .sorted(Comparator.comparingInt(Violation::line).thenComparingInt(Violation::col)
+                .thenComparing(v -> NOT_FOLLOWED.matcher(v.message()).find()).reversed())
             .toList();
 
         for (Violation v : ordered) {
             int i = v.line() - 1;
             if (i < 0 || i >= lines.size())
+                continue;
+
+            // Checkstyle counts a tab as up to eight columns, so on a line with a tab its column is not a place in
+            // the line. FileTabCharacter replaces the tab in this pass, and the caller's next check names the column.
+            if (BY_COLUMN.contains(v.rule()) && lines.get(i) != null && lines.get(i).indexOf('\t') >= 0)
                 continue;
 
             switch (v.rule()) {
@@ -133,10 +147,12 @@ final class Fixers {
         if (before)
             lines.set(i, l.substring(0, at) + " " + l.substring(at));
         else {
-            // "'x' is not followed by whitespace": the token starts at col; find its end and pad
-            Matcher m = Pattern.compile("\\S+").matcher(l);
-            if (m.find(at))
-                lines.set(i, l.substring(0, m.end()) + " " + l.substring(m.end()));
+            // "'x' is not followed by whitespace": the token the message names starts at col
+            Matcher m = NOT_FOLLOWED.matcher(v.message());
+            if (m.find() && l.startsWith(m.group(1), at)) {
+                int end = at + m.group(1).length();
+                lines.set(i, l.substring(0, end) + " " + l.substring(end));
+            }
         }
     }
 

@@ -24,7 +24,7 @@ class HiddenClassTest {
     private static final Pattern LINKED = Pattern.compile("<link rel=\"stylesheet\" href=\"/([^\"]+)\">");
 
     @ParameterizedTest
-    @ValueSource(strings = {"index", "flaky", "status"})
+    @ValueSource(strings = {"index", "master", "status"})
     void aPageThatHidesByTheClassDefinesIt(String page) throws Exception {
         String html = Files.readString(STATIC.resolve(page + ".html"));
         String js = Files.readString(STATIC.resolve(page + ".js")) + Files.readString(STATIC.resolve("common.js"));

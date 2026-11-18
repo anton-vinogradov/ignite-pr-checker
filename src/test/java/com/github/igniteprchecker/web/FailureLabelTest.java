@@ -91,7 +91,7 @@ class FailureLabelTest {
 
     @Test
     void flakyBoardDoesNotSuggestReRunningATestThatFailsEveryMasterRun() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", PageScript.MASTER_BOARD + """
+        JsonNode out = PageScript.run("master.html", PageScript.MASTER_BOARD + """
             page.route('/api/test-details', { body: { kind: 'environment', details: 'Node has not joined' } });
             board([rebalance, nearReader]);
             await page.load('');

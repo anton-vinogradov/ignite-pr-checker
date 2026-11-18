@@ -30,7 +30,7 @@ class PageContrastTest {
     private static final Path STATIC = Path.of("src/main/resources/static");
 
     @ParameterizedTest
-    @ValueSource(strings = {"index.html", "flaky.html", "status.html"})
+    @ValueSource(strings = {"index.html", "master.html", "status.html"})
     void everyThemeKeepsTextReadableOnItsFill(String page) throws Exception {
         JsonNode out = run(STATIC.resolve(page));
 

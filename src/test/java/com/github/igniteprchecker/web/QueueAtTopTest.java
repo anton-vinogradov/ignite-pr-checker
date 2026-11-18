@@ -9,7 +9,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.github.igniteprchecker.Jackson2Defaults;
-import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.SuiteBaseline;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AnalysisProperties;
@@ -75,7 +74,7 @@ class QueueAtTopTest {
         AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
         tc = new TcClient(new TeamcityProperties("http://" + server.getAddress().getHostString() + ":"
             + server.getAddress().getPort() + "/"), cfg, new Metrics(Jackson2Defaults.mapper()));
-        mvc = MockMvcBuilders.standaloneSetup(new TriggerController(tc, mock(BlockerAnalyzer.class),
+        mvc = MockMvcBuilders.standaloneSetup(new TriggerController(tc,
                 mock(RerunTracker.class), mock(PrHeads.class), mock(SuiteBaseline.class), cfg))
             .setControllerAdvice(new ApiExceptionHandler(tc, mock(Warmer.class)))
             .build();

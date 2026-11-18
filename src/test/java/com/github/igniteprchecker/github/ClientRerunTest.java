@@ -36,6 +36,7 @@ import com.github.igniteprchecker.style.StyleFixService;
 import com.github.igniteprchecker.tc.PinnedRun;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.tc.TcResponseException;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -390,8 +391,8 @@ class ClientRerunTest {
     void aRerunTheTokenWasRefusedForGoesInAfterALogin() {
         clientComment(1L, "/run-all");
         when(tc.queuePinned(eq("tc"), any(), eq(true), startsWith("Ignite PR Checker: auto")))
-            .thenThrow(HttpClientErrorException.create(HttpStatus.UNAUTHORIZED, "Unauthorized", HttpHeaders.EMPTY,
-                new byte[0], StandardCharsets.UTF_8))
+            .thenThrow(new TcResponseException(HttpClientErrorException.create(HttpStatus.UNAUTHORIZED, "Unauthorized",
+                HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8)))
             .thenReturn(build(RERUN, "queued", null));
         finished(RUN, "FAILURE");
         when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN)).thenReturn(verdict(true));

@@ -667,6 +667,7 @@ function openPr(number, push, repo = repoFromUrl()) {
     if (!projectAvailable(repo)) { showProjectError(repo); return; }
     selectedPr = number;
     selectedRepo = repo;
+    analyzeRetries = 0;
     $('settingsBtn').href = settingsAddress();
     narrowListOpen = false;
     syncPane(); // now a PR is selected: honour the saved collapsed state + reveal the collapse button
@@ -1560,6 +1561,8 @@ async function loadMe() {
 }
 
 async function login() {
+    // Enter in the field while a login is under way: each refused try counts against the address.
+    if ($('loginBtn').disabled) return;
     loginMsg('', false);
     const token = $('token').value.trim();
     if (!token) { loginMsg(T('Enter a token.'), true); return; }

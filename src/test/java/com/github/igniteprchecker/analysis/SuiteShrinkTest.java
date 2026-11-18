@@ -84,6 +84,23 @@ class SuiteShrinkTest {
         assertEquals(67, broken.baseline());
     }
 
+    /**
+     * 181 of master's 200 tests is a drop of 9.5%: rounded to 10 it made the chain's run shrunk, while a re-run with the
+     * same 181 tests counted as a full one and took the suite off the list.
+     */
+    @Test
+    void aDropBelowTheThresholdIsNotRoundedUpToIt() {
+        TcClient tc = mock(TcClient.class);
+        SuiteBaseline baseline = mock(SuiteBaseline.class);
+        when(baseline.counts(anyString())).thenReturn(Map.of("Cache1", 200));
+        when(tc.getBuildWithDeps(TOK, 999L)).thenReturn(chain(dep(1, "Cache1", "Cache 1", "SUCCESS", 181)));
+        when(tc.recentChains(TOK, 42, 3)).thenReturn(List.of());
+
+        assertTrue(new ChainCollector(tc, baseline).collectForBuild(TOK, 42, 999L, Executors.newSingleThreadExecutor())
+            .shrunkSuites().isEmpty());
+        assertTrue(ChainCollector.isFullRun(181, 200));
+    }
+
     @Test
     void aRunBackToFullStrengthIsNoLongerShrunk() {
         assertTrue(ChainCollector.isFullRun(63, 67), "63 of 67 is within the threshold");

@@ -490,7 +490,7 @@ public class GithubClient implements SnapshotCache {
         java.util.Map<?, ?> head = (java.util.Map<?, ?>)pr.get("head");
         java.util.Map<?, ?> headRepo = (java.util.Map<?, ?>)head.get("repo");
 
-        return new PrHead((String)user.get("login"), (String)headRepo.get("full_name"),
+        return new PrHead((String)user.get("login"), headRepo == null ? null : (String)headRepo.get("full_name"),
             (String)head.get("ref"), (String)head.get("sha"));
     }
 
@@ -1100,7 +1100,7 @@ public class GithubClient implements SnapshotCache {
             .retrieve();
     }
 
-    /** A PR's author and source-branch coordinates. */
+    /** A PR's author and source-branch coordinates; {@code headRepo} is null when the fork was deleted. */
     public record PrHead(String authorLogin, String headRepo, String headRef, String headSha) {
     }
 

@@ -29,6 +29,11 @@ class ProjectPagesControllerTest {
             .andExpect(status().isFound()).andExpect(redirectedUrl("/ignite"));
     }
 
+    @Test
+    void theMasterBoardsOldAddressLeadsToItsNewOne() throws Exception {
+        mvc.perform(get("/flaky.html")).andExpect(status().isMovedPermanently()).andExpect(redirectedUrl("/master.html"));
+    }
+
     /** An unknown project cannot resolve to another project's PR page. */
     @Test
     void refusesUnknownProject() throws Exception {

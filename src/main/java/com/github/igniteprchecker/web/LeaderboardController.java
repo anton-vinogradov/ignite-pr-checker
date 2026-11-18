@@ -32,16 +32,18 @@ public class LeaderboardController {
     /**
      * {@code tracked} lets the UI tell "nothing recorded yet" from a genuinely clean master; {@code muted} is how
      * many tracked tests are left out as muted, {@code prDays} how far back the PR counts go, and {@code window} how
-     * many master runs a test's history holds at most. {@code limit} cuts each group of {@code tests}; the three group
-     * counts precede that limit. {@code causes} are those of the newly broken tests among {@code tests}, which name
+     * many master runs a test's history holds at most. {@code limit} cuts each group of {@code tests}, as a board of
+     * hundreds of tests is over a megabyte, unless the reader asked for the {@code whole} one; the three group counts
+     * precede that limit. {@code causes} are those of the newly broken tests among {@code tests}, which name
      * theirs by the commit of their first failure. {@code suites} are the suites with a problem run among their master
      * runs, whose letters {@code suiteKinds} names; {@code suiteChains} is how many master chains those runs were read
      * from, 0 while none was: no suite is then known to have reported its tests.
      */
     @GetMapping("/top-flaky")
-    public Map<String, Object> topFlaky(@RequestParam(defaultValue = "30") int limit) {
+    public Map<String, Object> topFlaky(@RequestParam(defaultValue = "30") int limit,
+        @RequestParam(defaultValue = "false") boolean whole) {
         FlakyStats.GroupSizes sizes = flaky.groupSizes();
-        List<FlakyStats.TopFlaky> tests = flaky.top(Math.min(Math.max(limit, 1), 100));
+        List<FlakyStats.TopFlaky> tests = flaky.top(whole ? Integer.MAX_VALUE : Math.min(Math.max(limit, 1), 100));
 
         return Map.ofEntries(
             Map.entry("tracked", flaky.trackedCount()),

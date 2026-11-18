@@ -101,7 +101,7 @@ class ContextStartsTest {
      */
     @Test
     void thePagesScriptsAreServedAsJavaScriptUnderAPolicyThatAllowsOnlyThem() {
-        for (String page : List.of("/", "/flaky.html", "/status.html")) {
+        for (String page : List.of("/", "/master.html", "/status.html")) {
             ResponseEntity<String> html = http.getForEntity(page, String.class);
             assertThat(html.getHeaders().getFirst("Content-Security-Policy")).as(page).contains("script-src 'self'");
             List<String> scripts = Pattern.compile("<script src=\"(/[^\"]+)\"></script>").matcher(html.getBody())
@@ -172,20 +172,20 @@ class ContextStartsTest {
     }
 
     /**
-     * Anyone can post a body to /api/login. Jackson 3 reads a string of up to 100 million characters, which takes
-     * hundreds of megabytes of the heap before the token is refused. The read stops at Jackson 2's 20 million.
+     * Anyone can post a body to /api/login. Jackson read a string of up to 20 million characters from it, tens of
+     * megabytes of the heap each, before the token was refused. No endpoint reads more than a token or two: such a
+     * body is refused by its size, unread.
      */
     @Test
-    void aLoginBodyPastTheLimitOfJackson2IsCutOffWhileRead(CapturedOutput output) throws Exception {
+    void aLoginBodyNoEndpointHasAUseForIsRefusedUnread() throws Exception {
         HttpRequest login = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/login"))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString("{\"token\":\"" + "a".repeat(20_000_001) + "\"}")).build();
 
         HttpResponse<String> res = HttpClient.newHttpClient().send(login, HttpResponse.BodyHandlers.ofString());
 
-        assertThat(res.statusCode()).isEqualTo(400);
-        assertThat(res.body()).contains("bad JSON");
-        assertThat(output.getAll()).contains("Unreadable body of POST /api/login");
+        assertThat(res.statusCode()).isEqualTo(413);
+        assertThat(res.body()).contains("Request body too large");
     }
 
     /**

@@ -60,9 +60,7 @@ final class TtlCache<K, V> {
 
     /** Restarts an existing entry's TTL (even an expired one) — for values that cannot go stale. */
     void touch(K key) {
-        Entry<V> e = map.get(key);
-        if (e != null)
-            map.put(key, new Entry<>(e.value(), nowMs.getAsLong() + ttlMs));
+        map.computeIfPresent(key, (k, e) -> new Entry<>(e.value(), nowMs.getAsLong() + ttlMs));
     }
 
     int size() {
