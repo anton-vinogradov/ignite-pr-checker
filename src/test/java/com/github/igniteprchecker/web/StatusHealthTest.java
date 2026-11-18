@@ -22,6 +22,7 @@ import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.persist.CacheStore;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
+import com.github.igniteprchecker.update.GithubDeployStatus;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -51,12 +52,14 @@ class StatusHealthTest {
 
     private final AuthInterceptor auth = mock(AuthInterceptor.class);
 
+    private final GithubDeployStatus deploy = mock(GithubDeployStatus.class);
+
     @SuppressWarnings("unchecked")
     private final StatusController status = new StatusController(mock(Metrics.class), mock(AnalysisCache.class),
         warmer, mock(GithubClient.class), logs,
         new ServiceHealth(warmer, standing, commands, store, mock(EffectiveConfig.class)), mock(RerunTracker.class),
         standing, commands, auth, mock(AdminActions.class), store,
-        mock(EffectiveConfig.class), mock(ObjectProvider.class));
+        mock(EffectiveConfig.class), mock(ObjectProvider.class), null, deploy);
 
     @BeforeEach
     void start() {
@@ -74,6 +77,15 @@ class StatusHealthTest {
 
     private Object health() {
         return status.status(new MockHttpServletRequest()).get("health");
+    }
+
+    /** Given a helper's public deployment record, anonymous status includes it in the existing snapshot. */
+    @Test
+    void deploymentStatusIsPublicWithoutAnotherEndpoint() {
+        Map<String, Object> recorded = Map.of("state", "starting", "startedAt", "2026-11-18T10:00:00Z");
+        when(deploy.snapshot()).thenReturn(recorded);
+
+        assertThat(status.status(new MockHttpServletRequest())).containsEntry("githubDeploy", recorded);
     }
 
     /** Given three watched client projects, status lists each with its visible suite name and repository. */

@@ -293,6 +293,21 @@ service. Before the start, systemd runs `update.sh` as root, which:
 - on a failure keeps the current jar and writes the reason to `/opt/ignite-pr-checker/update-failed`. The button then
   reads **Retry update to vX.Y.Z**, with the reason in its tooltip. The service starts either way.
 
+**Deploy from GitHub.** Enable this mode on a working systemd installation with
+`sudo bash ops/install-github-deploy.sh` from a trusted checkout. It installs a timer and replaces the in-app
+release update with server-side deployment. In GitHub, open **Actions → Deploy → Run workflow** and select
+**main**. Actions tests and publishes that commit. The server checks for a successful Deploy run every three
+minutes and verifies the downloaded JAR against the digest recorded in that run. GitHub needs no server credentials.
+
+The **GitHub deployment** card on **Status** shows the current step and the last successful deployment.
+After a restart, the server checks that the new JAR answers with the expected version and commit. If it fails, the
+server restores the previous JAR, starts it and checks it too. To retry a rejected deployment, launch **Deploy**
+again. The application state stays on disk when the server restores a JAR.
+
+To switch back to updates from the page, disable `ignite-pr-checker-deploy.timer`, wait for
+`ignite-pr-checker-deploy.service` to finish, remove
+`/etc/systemd/system/ignite-pr-checker.service.d/github-deploy.conf`, reload systemd and restart the checker.
+
 **Install a given version.** `install.sh` always takes the latest release; `update.sh` installs the one you name, an
 older one too:
 

@@ -78,6 +78,8 @@ class DeployScriptTest {
         stub("systemctl", "echo \"$*\" >> \"" + server + "/systemctl\"\n"
             + "if [ \"$1\" = restart ]; then touch \"" + server + "/restarted\"; fi");
         stub("sleep", ":");
+        if (new ProcessBuilder("bash", "-c", "command -v flock").start().waitFor() != 0)
+            stub("flock", ":"); // The simulated Linux server runs one command at a time on this test host.
         if (new ProcessBuilder("bash", "-c", "command -v sha256sum").start().waitFor() != 0)
             stub("sha256sum", "exec shasum -a 256 \"$@\"");
     }
@@ -127,6 +129,19 @@ class DeployScriptTest {
         assertThat(server.resolve("installed-jars")).hasContent(
             HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest("new jar".getBytes(UTF_8)))
                 + " 1.21.0-1-gabc1234");
+    }
+
+    /** Given a pending GitHub Deploy recovery, when a local deploy reaches the server, it leaves the JAR alone. */
+    @Test
+    void aPendingGithubDeployBlocksALocalDeployment() throws Exception {
+        Files.writeString(server.resolve(".github-deploy.pending.json"), "{}");
+
+        Result refused = deploy();
+
+        assertThat(refused.exit()).isNotZero();
+        assertThat(refused.out()).contains("GitHub Deploy has an unfinished update.");
+        assertThat(server.resolve("app.jar")).hasContent("old jar");
+        assertThat(server.resolve("systemctl")).doesNotExist();
     }
 
     @Test

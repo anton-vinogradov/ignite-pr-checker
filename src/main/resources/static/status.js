@@ -176,6 +176,37 @@ function versionCard(d) {
         d.dirty ? 'warn' : '');
 }
 
+function githubDeployCards(d) {
+    if (!d) return card(T('GitHub deployment'), T('Not recorded'), T('No deployment has been recorded on this server.'));
+    if (d.state === 'unavailable')
+        return card(T('GitHub deployment'), T('unavailable'), T('Could not read deployment status.'), 'warn');
+    const states = { idle: T('Idle'), downloading: T('Downloading'), starting: T('Starting'),
+        succeeded: T('Succeeded'), failed: T('Failed'), rolled_back: T('Rolled back') };
+    const details = {
+        'download-failed': T('Could not download the GitHub artifact.'),
+        'artifact-invalid': T('The downloaded artifact failed validation.'),
+        'startup-failed': T('The new version did not start.'),
+        'health-check-failed': T('The new version did not pass its health check.'),
+        'rollback-failed': T('The previous version could not be restored.'),
+        interrupted: T('An earlier deployment was interrupted.'),
+        'service-unavailable': T('The service was unavailable before deployment.')
+    };
+    const when = value => {
+        const date = new Date(value);
+        return Number.isFinite(date.getTime()) ? esc(date.toLocaleString(LANG === 'ru' ? 'ru-RU' : [],
+            { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })) : '—';
+    };
+    const target = [d.version ? esc(d.version) : '', d.commit
+        ? `<span title="${esc(d.commit)}">${esc(d.commit.slice(0, 7))}</span>` : ''].filter(Boolean).join(' ');
+    const lines = [target, d.startedAt ? T`Started ${when(d.startedAt)}` : '',
+        d.finishedAt ? T`Finished ${when(d.finishedAt)}` : '', details[d.detail] || ''].filter(Boolean);
+    const level = d.state === 'succeeded' ? 'ok' : d.state === 'failed' ? 'bad'
+        : ['downloading', 'starting', 'rolled_back'].includes(d.state) ? 'warn' : '';
+    return card(T('GitHub deployment'), states[d.state] || T('unavailable'), lines.join(' · '), level)
+        + card(T('Last successful deployment'), d.lastSuccessAt ? when(d.lastSuccessAt) : '—',
+            d.lastSuccessVersion ? esc(d.lastSuccessVersion) : T('No successful deployment recorded.'));
+}
+
 // The settings name paths on the server, so only signed-in viewers get them.
 function configRows(d) {
     if (!d.config) return `<div class="muted">${T('log in on the main page to see the settings')}</div>`;
@@ -346,6 +377,7 @@ function render(d) {
         heapDumpCard(j.heapDump),
         persistenceCard(d.persistence),
     ].join('');
+    $('githubDeployCards').innerHTML = githubDeployCards(d.githubDeploy);
 
     $('appCards').innerHTML = [
         card(T('Analyze (1h)'), az ? `${az.avgLatencyMs}` : '—',

@@ -31,7 +31,7 @@ def gitDirty = gitCommit != null && (gitStatus == null || !gitStatus.isEmpty())
 // Release builds pass -Pappversion=<tag without 'v'> (see .github/workflows/release.yml). Any other build is named
 // by git describe, e.g. 1.21.0-3-g5f2c9e1-dirty: three commits after v1.21.0, with uncommitted changes. Outside a
 // repository it is 0.0.0-SNAPSHOT, which no release can be mistaken for. Embedded via buildInfo() with the commit.
-def described = git('describe', '--tags', '--always')
+def described = git('describe', '--tags', '--match', 'v[0-9]*', '--always')
 version = project.findProperty('appversion')
     ?: (described ? described.replaceFirst(/^v/, '') + (gitDirty ? '-dirty' : '') : '0.0.0-SNAPSHOT')
 
