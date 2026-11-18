@@ -87,6 +87,7 @@ class ReleaseNotesTest {
 
             The nightly JDK 21 run made 50 tests pre-existing for every PR.
             """);
+        exec("git", "tag", "deploy-101-1-" + "a".repeat(40));
         commit("Fix a typo in the status page (#243)", 9);
         pr(243, "## What changes for users\n\nNothing.\n");
         commit("Bump jackson (#244)", 9);

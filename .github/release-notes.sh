@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
 # Release notes for tag $1, for whoever uses the checker and whoever presses Update: the "What changes for users"
-# section of each PR merged since the previous tag, and a warning when TestVerdict.RULES changed, since then every
+# section of each PR merged since the previous release tag, and a warning when TestVerdict.RULES changed, since then every
 # cached verdict is computed again. The release workflow appends GitHub's own list of the PRs. Needs the history
 # and the tags (fetch-depth: 0), and gh with GH_TOKEN.
 #
 set -euo pipefail
 
 tag="$1"
-prev="$(git describe --tags --abbrev=0 "$tag^" 2>/dev/null || true)"
+prev="$(git describe --tags --match 'v[0-9]*' --abbrev=0 "$tag^" 2>/dev/null || true)"
 RULES_FILE=src/main/java/com/github/igniteprchecker/analysis/model/TestVerdict.java
 
 rules() { { git show "$1:$RULES_FILE" 2>/dev/null || true; } | sed -n 's/.*int RULES = \([0-9]*\);.*/\1/p'; }
