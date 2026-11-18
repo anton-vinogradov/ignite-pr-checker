@@ -1,0 +1,170 @@
+name: Deployment status
+
+on:
+  workflow_run:
+    workflows: [Deploy]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: production-deploy-status-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    if: >-
+      github.repository == 'anton-vinogradov/ignite-pr-checker' &&
+      github.event.workflow_run.head_repository.full_name == 'anton-vinogradov/ignite-pr-checker' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.path == '.github/workflows/deploy.yml' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Report the server's deployment result on the merged PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import time
+          from urllib.error import HTTPError, URLError
+          from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+          REPO = "anton-vinogradov/ignite-pr-checker"
+          STATUS_URL = "https://ignite-pr-checker.is-a.dev/api/status"
+          CONTEXT = "Production deploy"
+          TRANSIENT = {"download-failed", "service-unavailable"}
+
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self, request, fp, code, message, headers, url):
+                  return None
+
+          transport = build_opener(NoRedirect)
+
+          def request_json(url, body=None, token=None):
+              headers = {"Accept": "application/json", "User-Agent": "ignite-pr-checker-deploy-status"}
+              if token:
+                  headers["Authorization"] = "Bearer " + token
+                  headers["X-GitHub-Api-Version"] = "2022-11-28"
+              data = None if body is None else json.dumps(body).encode()
+              if data is not None:
+                  headers["Content-Type"] = "application/json"
+              with transport.open(Request(url, data=data, headers=headers), timeout=20) as response:
+                  raw = response.read(2 * 1024 * 1024 + 1)
+              if len(raw) > 2 * 1024 * 1024:
+                  raise ValueError("response is too large")
+              return json.loads(raw)
+
+          def api(path, body=None):
+              return request_json("https://api.github.com/repos/" + REPO + "/" + path,
+                                  body, os.environ["GH_TOKEN"])
+
+          def run_order(run):
+              values = run.get("run_number"), run.get("run_attempt")
+              if any(type(value) is not int or value <= 0 for value in values):
+                  raise ValueError("invalid workflow run identity")
+              return values
+
+          def trusted(run):
+              return (run.get("path") == ".github/workflows/deploy.yml"
+                      and run.get("head_branch") == "main"
+                      and run.get("head_repository", {}).get("full_name") == REPO
+                      and run.get("event") in {"push", "workflow_dispatch"}
+                      and run.get("status") == "completed" and run.get("conclusion") == "success")
+
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as event_file:
+              run = json.load(event_file)["workflow_run"]
+          if os.environ["GITHUB_REPOSITORY"] != REPO or not trusted(run):
+              raise SystemExit("Ignoring a workflow outside the production deployment boundary.")
+          run_id = run["id"]
+          if type(run_id) is not int or run_id <= 0:
+              raise ValueError("invalid workflow run ID")
+          order = run_order(run)
+          commit = run["head_sha"]
+          if not re.fullmatch(r"[0-9a-f]{40}", commit):
+              raise ValueError("invalid deployment commit")
+          target = f"https://github.com/{REPO}/actions/runs/{run_id}/attempts/{order[1]}"
+          jobs = api(f"actions/runs/{run_id}/attempts/{order[1]}/jobs?per_page=100")["jobs"]
+          versions = [match.group(1) for job in jobs
+                      if job.get("name") == "Publish deploy candidate" and job.get("conclusion") == "success"
+                      for step in job.get("steps", []) if step.get("conclusion") == "success"
+                      if (match := re.fullmatch(r"Deploy JAR ([0-9]+(?:\.[0-9]+){2}-deploy\.[1-9][0-9]*) [0-9a-f]{64}",
+                                                step.get("name", "")))]
+          if len(versions) != 1 or not versions[0].endswith(f"-deploy.{order[0]}"):
+              raise ValueError("the exact workflow attempt did not record one checked deployment version")
+          version = versions[0]
+          pulls = api(f"commits/{commit}/pulls?per_page=100")
+          matches = [pr for pr in pulls if pr.get("merged_at") and pr.get("merge_commit_sha") == commit
+                     and pr.get("base", {}).get("ref") == "main"
+                     and pr.get("base", {}).get("repo", {}).get("full_name") == REPO]
+          if len(matches) != 1:
+              raise SystemExit("No unique merged PR for this commit; no PR status was written.")
+          head = matches[0]["head"]["sha"]
+          if not re.fullmatch(r"[0-9a-f]{40}", head):
+              raise ValueError("invalid PR head commit")
+
+          def publish(state, detail):
+              statuses = api(f"commits/{head}/statuses?per_page=100")
+              previous = next((item for item in statuses if item.get("context") == CONTEXT), None)
+              if previous:
+                  match = re.fullmatch(r"https://github\.com/anton-vinogradov/ignite-pr-checker/actions/runs/"
+                                       r"([1-9][0-9]*)/attempts/([1-9][0-9]*)", previous.get("target_url") or "")
+                  if match:
+                      previous_id, previous_attempt = map(int, match.groups())
+                      previous_run = run if previous_id == run_id else api(f"actions/runs/{previous_id}")
+                      if (previous_run.get("path") == ".github/workflows/deploy.yml"
+                              and (previous_run["run_number"], previous_attempt) > order):
+                          print("A newer deployment already owns this PR status; leaving it unchanged.")
+                          return False
+              api(f"statuses/{head}", {"state": state, "context": CONTEXT, "target_url": target,
+                                      "description": f"{version} (attempt {order[1]}): {detail}"[:140]})
+              print(f"{version}: {state}: {detail}")
+              return True
+
+          def outcome(status):
+              receipt = status.get("githubDeploy") or {}
+              observed = receipt.get("runNumber"), receipt.get("runAttempt")
+              if any(type(value) is not int or value <= 0 for value in observed):
+                  return None
+              if observed > order:
+                  return "error", "not confirmed; a newer deployment was selected"
+              if observed != order:
+                  return None
+              if receipt.get("commit") != commit:
+                  return "error", "not confirmed; deployment identity does not match"
+              state = receipt.get("state")
+              if state == "rolled_back" or (state == "failed" and receipt.get("detail") not in TRANSIENT):
+                  return "failure", "rolled back" if state == "rolled_back" else "deployment failed"
+              if (state == "succeeded" and receipt.get("version") == version
+                      and status.get("version") == version and status.get("commit") == commit
+                      and status.get("dirty") is False):
+                  return "success", "live on production"
+              return None
+
+          if publish("pending", "waiting for the server's deployment confirmation"):
+              try:
+                  deadline = time.monotonic() + 15 * 60
+                  while time.monotonic() < deadline:
+                      try:
+                          result = outcome(request_json(STATUS_URL))
+                      except (OSError, ValueError, TypeError, KeyError, HTTPError, URLError):
+                          result = None
+                      if result:
+                          publish(*result)
+                          break
+                      time.sleep(20)
+                  else:
+                      publish("error", "deployment not confirmed within 15 minutes")
+              except Exception:
+                  publish("error", "deployment observation did not finish")
+                  raise
+          PY

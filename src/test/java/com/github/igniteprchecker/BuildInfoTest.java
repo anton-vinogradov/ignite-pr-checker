@@ -44,24 +44,24 @@ class BuildInfoTest {
         assertThat(info.getProperty("build.dirty")).isEqualTo(String.valueOf(dirty));
     }
 
-    /** Release-based versions ignore Deploy tags; a Deploy build adds its exact Actions run number. */
+    /** Deploy uses its exact Actions run number; other builds keep their release-based versions. */
     @Test
     void aBuildThatIsNoReleaseSaysWhereItStands() throws Exception {
         String version = buildInfo().getProperty("build.version");
-        String described = git("describe", "--tags", "--match", "v[0-9]*", "--always").replaceFirst("^v", "");
-        boolean dirty = Boolean.parseBoolean(buildInfo().getProperty("build.dirty"));
-
         String deployNumber = System.getenv("PRC_DEPLOY_NUMBER");
         if (deployNumber != null && !deployNumber.isBlank()) {
             assertThat(deployNumber).matches("[1-9][0-9]*");
-            String suffix = "-deploy." + deployNumber;
-            assertThat(version).endsWith(suffix);
-            version = version.substring(0, version.length() - suffix.length());
+            assertThat(version).isEqualTo("2.0.0-deploy." + deployNumber);
+        }
+        else {
+            String described = git("describe", "--tags", "--match", "v[0-9]*", "--always").replaceFirst("^v", "");
+            boolean dirty = Boolean.parseBoolean(buildInfo().getProperty("build.dirty"));
+
+            assertThat(version).satisfiesAnyOf(
+                v -> assertThat(v).matches("\\d+\\.\\d+\\.\\d+"),
+                v -> assertThat(v).isEqualTo(described + (dirty ? "-dirty" : "")));
         }
 
-        assertThat(version).satisfiesAnyOf(
-            v -> assertThat(v).matches("\\d+\\.\\d+\\.\\d+"),
-            v -> assertThat(v).isEqualTo(described + (dirty ? "-dirty" : "")));
         assertThat(version).doesNotEndWith("-dev").isNotEqualTo("0.0.0-SNAPSHOT");
     }
 }
