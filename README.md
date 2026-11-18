@@ -299,10 +299,12 @@ release update with server-side deployment. When a merge or push updates `main`,
 and publishes its JAR if the tests pass. The server checks for a successful Deploy run every three minutes and
 verifies the downloaded JAR against the digest recorded in that run. GitHub needs no server credentials.
 
-The version shown on **Status** ends in `-deploy.<number>`, for example `1.52.0-19-gabc1234-deploy.4`.
+Deploy versions shown on **Status** have the form `2.0.0-deploy.<number>`, for example `2.0.0-deploy.4`.
 The number identifies a Deploy workflow run: a new run gets a new number, while a retry keeps it.
 The GitHub prerelease title comes from the merged PR that introduced the checked commit. Without a matching PR,
 it uses the push commit's subject, or `Deploy <SHA>` for a manual run.
+The PR's **Production deploy** check shows the version once GitHub publishes the JAR. It marks the deploy successful
+after the server confirms it started that version and commit.
 
 The **GitHub deployment** card on **Status** shows the current step and the last successful deployment.
 After a restart, the server checks that the new JAR answers with the expected version and commit. If it fails, the

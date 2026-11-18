@@ -7,6 +7,7 @@ import com.github.igniteprchecker.config.UpdateProperties;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -47,7 +48,32 @@ class GithubDeployStatusTest {
             .containsEntry("startedAt", "2026-11-18T10:00:00Z")
             .containsEntry("finishedAt", "2026-11-18T10:01:00Z")
             .containsEntry("lastSuccessAt", "2026-11-17T09:00:00Z")
-            .containsEntry("lastSuccessVersion", "1.52.0").doesNotContainKeys("token", "localPath");
+            .containsEntry("lastSuccessVersion", "1.52.0")
+            .doesNotContainKeys("token", "localPath", "runNumber", "runAttempt");
+    }
+
+    /** Given numeric run metadata, reading status exposes the exact run and attempt within the supported range. */
+    @ParameterizedTest
+    @ValueSource(longs = {1, Long.MAX_VALUE})
+    void positiveRunIdentifiersArePublicMetadata(long runNumber) throws Exception {
+        Files.writeString(dir.resolve("github-deploy.json"), "{\"state\":\"succeeded\",\"runNumber\":"
+            + runNumber + ",\"runAttempt\":2,\"token\":\"not-public\"}");
+
+        assertThat(reader().snapshot()).isEqualTo(Map.of("state", "succeeded", "runNumber", runNumber,
+            "runAttempt", 2L));
+    }
+
+    /** Given either invalid run identifier, the record is unavailable without exposing its contents. */
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "-1", "1.5", "\"2\"", "true", "{}", "[]", "9223372036854775808"})
+    void invalidRunIdentifiersDoNotBecomePublicMetadata(String literal) throws Exception {
+        for (String key : List.of("runNumber", "runAttempt")) {
+            Files.writeString(dir.resolve("github-deploy.json"), "{\"state\":\"succeeded\",\"" + key + "\":"
+                + literal + ",\"token\":\"not-public\"}");
+
+            assertThat(reader().snapshot()).as(key).isEqualTo(Map.of("state", "unavailable",
+                "detail", "status-unreadable"));
+        }
     }
 
     /** Given a corrupt record or unapproved detail, reading it reports unavailable without revealing its content. */

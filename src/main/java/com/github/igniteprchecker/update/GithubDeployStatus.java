@@ -42,6 +42,14 @@ public class GithubDeployStatus {
 
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("state", state);
+            for (String key : List.of("runNumber", "runAttempt")) {
+                JsonNode value = data.get(key);
+                if (value != null && !value.isNull()) {
+                    if (!value.isIntegralNumber() || !value.canConvertToLong() || value.longValue() <= 0)
+                        throw new IllegalArgumentException("invalid deployment run identifier");
+                    out.put(key, value.longValue());
+                }
+            }
             for (String key : List.of("version", "lastSuccessVersion")) {
                 String value = text(data, key);
                 if (value != null) {
