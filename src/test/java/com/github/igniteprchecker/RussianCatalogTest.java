@@ -180,9 +180,9 @@ class RussianCatalogTest {
     /** The strings the pages write: those of their HTML, and those their scripts put into the page's language. */
     static Set<String> pageKeys() throws IOException {
         Set<String> keys = new LinkedHashSet<>();
-        for (String page : List.of("index.html", "status.html", "flaky.html"))
+        for (String page : List.of("index.html", "status.html", "master.html"))
             keys.addAll(htmlKeys(Files.readString(STATIC.resolve(page), UTF_8)));
-        for (String script : List.of("common.js", "index.js", "status.js", "flaky.js"))
+        for (String script : List.of("common.js", "index.js", "status.js", "master.js"))
             keys.addAll(scriptKeys(Files.readString(STATIC.resolve(script), UTF_8)));
 
         return keys;

@@ -505,7 +505,7 @@ function renderCats(el, byCategory) {
         const pct = 100 * s.total / max;
         const fail = s.fail ? T` · <span class="rate-bad">${s.fail} failed</span>` : '';
         return `<div class="catrow">
-            <div class="catname">${name}</div>
+            <div class="catname">${esc(name)}</div>
             <div class="catbar"><div class="catfill" style="width:${pct.toFixed(1)}%"></div></div>
             <div class="catval">${num(s.total)} <small>${T`${s.avgLatencyMs}ms`}${fail}</small></div>
         </div>`;

@@ -59,8 +59,8 @@ each label means and what to do about it.
   **Extensions: All Tests** build chain for `apache/ignite-extensions`, with its PR head and Ignite master.
   Open `/extensions?pr=42` for its suite results, whole-chain re-runs and final verdict comment. See
   [Extensions PRs](docs/features.md#extensions-prs).
-- **The master board** at `/flaky.html`: tests that fail on master, the newly broken ones first, then the suites
-  whose master runs end without a test verdict, the flaky tests and those that always fail. See [The master board](docs/features.md#the-master-board-flakyhtml).
+- **The master board** at `/master.html`: tests that fail on master, the newly broken ones first, then the suites
+  whose master runs end without a test verdict, the flaky tests and those that always fail. See [The master board](docs/features.md#the-master-board-masterhtml).
 - **The status page**: health, memory, the warmer, TeamCity, GitHub and JIRA calls, the settings in effect. Live:
   <https://ignite-pr-checker.is-a.dev/status.html>.
 
@@ -586,7 +586,7 @@ One Spring Boot application; the packages under `com.github.igniteprchecker`:
 | `update` | The in-app update, which asks `update.sh` for a release. |
 | `config`, `session` | Settings, and the encrypted session cookie. |
 
-The pages are static files, `index.html`, `flaky.html` and `status.html`, with their code in `static/*.js` and the
+The pages are static files, `index.html`, `master.html` and `status.html`, with their code in `static/*.js` and the
 shared helpers in `static/common.js`.
 
 ## Development

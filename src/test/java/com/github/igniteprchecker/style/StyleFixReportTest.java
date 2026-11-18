@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.style;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -110,6 +111,16 @@ class StyleFixReportTest {
             + "ignite/pull/13800/checks) check of this PR may fail on it._\n\n<details><summary>1 violation left"
             + "</summary>\n\n- `" + PATH + ":6` — MethodName\n\n</details>");
         verify(github, never()).commitFiles(anyString(), anyString(), anyString(), anyString(), anyMap(), anyString());
+    }
+
+    /** A PR whose fork was deleted has no branch to push to: the command said "the checker hit an error". */
+    @Test
+    void aPrOfADeletedForkIsLeftAlone() {
+        when(github.prHead(PR)).thenReturn(new GithubClient.PrHead("Author", null, "ignite-28867", "f195e0c"));
+        changed(Map.of(PATH, FIXABLE));
+
+        assertThat(service().fixForCommand(PR, author, "Author")).isNull();
+        verify(github, never()).commitFiles(anyString(), any(), anyString(), anyString(), anyMap(), anyString());
     }
 
     @Test

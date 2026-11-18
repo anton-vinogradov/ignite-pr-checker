@@ -13,9 +13,10 @@ const failureTexts = new Map(); // occurrenceId → the request for /api/test-de
 const failures = new Map(); // occurrenceId → its panel's failure message: { state, details, kind }
 const chipsShown = new WeakMap(); // a run chip's slot → the chip drawn in it
 // What the reader chose: the filter, the column the flaky tests are sorted by, the rows whose panel is open, the lists
-// shown whole, the causes whose commits are listed and the sections folded. The board is drawn from the answer and
-// these, so both outlive a poll.
-const ui = { q: '', sort: 'rate', open: new Set(), all: new Set(), commits: new Set(), folded: new Set(['always']) };
+// shown whole, the causes whose commits are listed, the sections folded and whether the board is asked for whole. The
+// board is drawn from the answer and these, so both outlive a poll.
+const ui = { q: '', sort: 'rate', open: new Set(), all: new Set(), commits: new Set(), folded: new Set(['always']),
+    whole: false };
 
 // How many rows a list shows before "Show all".
 const ROWS = { cause: 5, suites: 10, flaky: 15, always: 10 };
@@ -106,6 +107,7 @@ function render() {
                 + countOf(groups.length, 'cause'),
             T('Passed before, fail every run now. Find the commit.'),
             fresh.length ? cols('new') + groups.map(cause).join('')
+                + (sizes.new > fresh.length ? showAll('new', sizes.new) : '')
                 : nothing(T('None among the tests checked so far.')))
         + section('suites', T('Problem suites'), String(problem.length),
             T('They end without a test verdict: timeout, crash, out of memory, exit code, compilation error. Their '
@@ -115,10 +117,10 @@ function render() {
                     : T`Every suite reported its tests in its last ${board.suiteChains} master runs.`))
         + section('flaky', T('Flaky'), groupCount(flaky.length, sizes.flaky),
             T('Fail some runs, pass others. Make them stable.'),
-            flaky.length ? cols('flaky') + rows('flaky', flaky, ROWS.flaky) : nothing(T('No flaky tests.')))
+            flaky.length ? cols('flaky') + rows('flaky', flaky, ROWS.flaky, sizes.flaky) : nothing(T('No flaky tests.')))
         + section('always', T('Always failing'), groupCount(always.length, sizes.always),
             T`No real pass in the last ${runsWindow} runs. Fix or mute.`,
-            always.length ? cols('always') + rows('always', always, ROWS.always)
+            always.length ? cols('always') + rows('always', always, ROWS.always, sizes.always)
                 : nothing(T('No test fails every run.')))
         + '</div>';
     if (focus) refocus(el, focus);
@@ -208,11 +210,25 @@ function prsHead() {
     return T`PRs, ${prDays}d`;
 }
 
-// A list's rows, cut to `limit` until the reader asks for all of them or filters.
-function rows(key, list, limit) {
+// A list's rows, cut to `limit` until the reader asks for all of them or filters. The list has `size` rows: more than
+// the page holds when the server cut its group.
+function rows(key, list, limit, size = list.length) {
     const shown = ui.all.has(key) || ui.q ? list : list.slice(0, limit);
-    return shown.map(row).join('') + (shown.length < list.length
-        ? `<button class="why more" type="button" data-all="${esc(key)}">${T`Show all ${list.length}`}</button>` : '');
+    return shown.map(row).join('') + (shown.length < size ? showAll(key, size) : '');
+}
+
+function showAll(key, size) {
+    return `<button class="why more" type="button" data-all="${esc(key)}">${T`Show all ${size}`}</button>`;
+}
+
+// The server cuts each group to ROWS_ASKED, as the whole board is over a megabyte. A reader who asks for a whole
+// list or filters needs the rest: the board is asked for whole from then on.
+function askForWhole() {
+    const b = board;
+    if (ui.whole || !b || (b.tests || []).length >= b.attentionCount + b.flakyCount + b.brokenCount) return;
+    ui.whole = true;
+    pollsToBoard = 0;
+    tick();
 }
 
 // The newly broken tests by cause: those whose first failed run tested the same commit broke together. A test whose
@@ -707,10 +723,11 @@ function failedEveryMasterRun(b) {
     return b && b.broken ? T`the last ${b.failStreak} master runs` : '';
 }
 
-// The board changes at most once in three minutes, the server's cycle, and a full one is some 360 KB: every fourth poll
-// asks for it, and so does the poll after one it did not come to. The times of the re-runs change, so every poll asks
-// for them.
+// The board changes at most once in three minutes, the server's cycle, and one of ROWS_ASKED rows a group is some
+// 360 KB: every fourth poll asks for it, and so does the poll after one it did not come to. The times of the re-runs
+// change, so every poll asks for them.
 const BOARD_POLLS = 4;
+const ROWS_ASKED = 40;
 let pollsToBoard = 0; // how many polls ask for the re-runs alone before the next one asks for the board
 
 async function tick() {
@@ -718,9 +735,12 @@ async function tick() {
         let data = null;
         if (pollsToBoard) pollsToBoard--;
         else {
-            const r = await fetch('/api/top-flaky?limit=40', { cache: 'no-store' });
+            const whole = ui.whole;
+            const r = await fetch(`/api/top-flaky?limit=${ROWS_ASKED}${whole ? '&whole=true' : ''}`, { cache: 'no-store' });
             if (!r.ok) throw new Error('HTTP ' + r.status);
             data = await r.json();
+            // The reader asked for the whole board meanwhile: this cut one must not replace it.
+            if (whole !== ui.whole) return;
             pollsToBoard = BOARD_POLLS - 1;
         }
         const live = await fetch('/api/reruns', { cache: 'no-store' }).then(x => x.ok ? x.json() : null).catch(() => null);
@@ -787,7 +807,10 @@ document.addEventListener('click', e => {
         if (d.retry !== undefined) loadFailure(byKey.get(d.retry));
         if (d.fold !== undefined && !ui.folded.delete(d.fold)) ui.folded.add(d.fold);
         if (d.sort !== undefined) ui.sort = d.sort;
-        if (d.all !== undefined) ui.all.add(d.all);
+        if (d.all !== undefined) {
+            ui.all.add(d.all);
+            askForWhole();
+        }
         if (d.commits !== undefined) ui.commits.add(d.commits);
         render();
     }
@@ -836,6 +859,7 @@ document.addEventListener('mousemove', e => {
 
 $('q').addEventListener('input', e => {
     ui.q = e.target.value.trim().toLowerCase();
+    if (ui.q) askForWhole();
     if (board) render();
 });
 

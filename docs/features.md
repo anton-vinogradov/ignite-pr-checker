@@ -21,12 +21,12 @@ The PR comment and the JIRA visa link here. The numbers are the defaults in the 
 | **Recently started failing** | Tests failing on the code this run tested, with too few runs of it to tell a break from a flake. Not blockers yet. | **Rerun** the suite. If it keeps failing, it becomes a blocker; if it passes, it drops out. |
 | **Could not be checked** | Failed tests that TeamCity errors kept from being compared with master and the branch. Not counted as blockers. | Nothing: the checker tries them again on its own. |
 | **Run in progress — waiting for results** | The first run is still going; its empty blocker list is not a completed verdict. Partial results remain on the page. | Wait for the run's results. The activity line says whether automatic re-runs are still pending. |
-| **Broken suites** | Suites with no reliable result ([causes](#broken-suite-causes)). A timed-out or crashed suite is listed here, and the checker does not look for blockers in it. Its failures would come from the timeout or crash, and some tests never ran. The suites whose master runs end this way are on the master board (`/flaky.html`) under **Problem suites**. | Check the latest master result shown beside each suite before rerunning. The verdict can't see their tests. A suite that failed to compile has no **Rerun**: it needs a code fix. |
+| **Broken suites** | Suites with no reliable result ([causes](#broken-suite-causes)). A timed-out or crashed suite is listed here, and the checker does not look for blockers in it. Its failures would come from the timeout or crash, and some tests never ran. The suites whose master runs end this way are on the master board (`/master.html`) under **Problem suites**. | Check the latest master result shown beside each suite before rerunning. The verdict can't see their tests. A suite that failed to compile has no **Rerun**: it needs a code fix. |
 | **Fewer tests than master** | Suites that ran at least 10% fewer tests than the same suite on master; only suites with 20 or more tests on master are compared. Tests that never ran can't fail. | If the PR removes tests on purpose, nothing. Otherwise compare the test list with master and re-run. |
 | **Crashed near the end of the run** | Suites that hit a timeout, out-of-memory error or JVM crash after running over 90% of master's tests, with no failure blamed on the PR. Their results stand. Shown folded, with the count in its heading. | Nothing for the PR. |
 | **⚠ Suites that never ran** | The RunAll was interrupted: these suites were cancelled and never ran. The verdict says nothing about them. Suites a person cancelled are folded into one line per person. | **Rerun** them, or run RunAll again. |
 | **This PR's tests** | How the test classes the PR adds (`new`) or changes (`changed`) ran in this RunAll. Each class lists its tests that failed or ran longer than 60 s. The **all N tests** button opens every test of the class with its status and time. A test's name opens its run in TeamCity; a suite's name opens the suite's run. The line under a failed test says what the verdict did with it: `blocks this PR`, `recently started failing: …`, `could not be checked` or `not blamed: …`. Each links to the test's row in the matching card: **Blockers**, **Recently started failing**, **Could not be checked** or **Not blamed on this PR**. The verdict does not judge a test of a suite that timed out or crashed (`not checked: its suite broke`). It also does not judge a failure that TeamCity muted (`not checked: TeamCity muted it`). A failure the verdict has not judged reads `not checked yet` while the verdict can still change: a RunAll is still going, or the checker tries again after TeamCity errors. In a final verdict and in a merged PR's verdict, it reads `not checked`. The class line counts what the verdict did with its failures, for example `3 failed (none blamed on this PR)` or `2 failed (2 not checked yet)`. A class that Ignite's own abandoned-tests check finds in no test suite is tagged `not in any suite`. A class with no runs says why, when Ignite's abandoned-tests check and the files changed since the run show the reason: a commit after the run added it or put it in a suite, its suite did not run or broke, or it is a base or `@Ignore` class. When they show no reason, a note above the list names the possible reasons once for all such classes. The abandoned-tests check may still be running or be waiting for a maintainer to approve its run (a push by someone outside the project). It may also be skipped, or its result can't be read. Then a note above the list says so and how many classes did not run, if any. The card does not say why these classes did not run: without the check, nobody can tell. | Check that the new tests ran and passed. Fix a failed test that `blocks this PR`. Add a `not in any suite` class to a test suite or mark it `@Ignore`. |
-| **Not blamed on this PR** | Failures not blamed on the PR, each with its reason: they fail on master too, are flaky, or passed in a later run. Shown folded. | Nothing for this PR. Re-run only to double-check the flaky ones. Tests that fail on master are on the master board (`/flaky.html`). |
+| **Not blamed on this PR** | Failures not blamed on the PR, each with its reason: they fail on master too, are flaky, or passed in a later run. Shown folded. | Nothing for this PR. Re-run only to double-check the flaky ones. Tests that fail on master are on the master board (`/master.html`). |
 | **✓ No blockers** | The run covered the PR's current code and blamed nothing on it. The PR list shows **✓**. | You can merge the PR. |
 | **No proven blockers yet** | No test was blamed, but tests started failing on the code this run tested: they are under **Recently started failing**. The PR list shows **!**. | **Rerun** their suites: a re-run shows whether these tests are blockers. |
 | **No blockers found — not proven clean** | No test was blamed, but the verdict can't call the PR clean. The amber lines under the heading say why ([caveats](#caveats)). The PR list shows **?**. While the page still checks that the run tested the PR's latest commit, the heading reads **No blockers found**. | Handle what the lines list, then re-run. |
@@ -428,7 +428,7 @@ Your login is all these two options need.
   A suite that fails while the
   chain still runs is re-run at once, at the top of the queue, up to 10 per chain. After the chain finishes, the suites
   still blamed are re-run: up to 2 waves per run, the mid-run re-runs counting as the first. All automatic re-runs go to the
-  top of the queue. With more than 30 such suites and no re-run yet, nothing is re-run: that looks
+  top of the queue. With more than 30 such suites nothing more is re-run: that looks
   systemic. If ci2 does not let your account reorder its queue, the re-runs go to its end. Your own identical re-runs
   still in the queue are cancelled first; someone else's stay. A failed Build is re-run alone; suites that failed to
   compile, and the suites a failed Build kept from running, are never re-run.
@@ -752,7 +752,7 @@ GitHub account linked. There `/run-all` runs one client suite instead of RunAll:
   on the page does the same once you confirm. When TeamCity has no such suite or refuses the run, the reply says so.
 - The **PR commands** card on the status page names Ignite and all three client repositories.
 
-## The master board (`/flaky.html`)
+## The master board (`/master.html`)
 
 ![The master board in the dark theme: the newly broken tests grouped by cause, each cause with its commits, and the problem suites under them](img/flaky-board.jpg)
 
@@ -822,7 +822,8 @@ GitHub account linked. There `/run-all` runs one client suite instead of RunAll:
   the failure message from the latest failure in a PR. For a newly broken test the panel names the last pass and the
   first failure, each a link to its run. The message needs a login; the prompt works without one. When a run has no
   readable finish date, the panel says that the transition is unknown.
-- A section holds 40 tests at most. Tests muted on TeamCity are left out, and the line under the board says how many.
+- The page loads 40 tests of a section; **Show all** and the filter load the rest. Tests muted on TeamCity are left
+  out, and the line under the board says how many.
 - The tally survives restarts; a test drops off 14 days after it was last seen failing.
 
 ## The status page (`/status.html`)

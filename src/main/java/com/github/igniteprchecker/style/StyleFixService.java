@@ -59,6 +59,9 @@ public class StyleFixService {
      */
     public String fixForCommand(int pr, StandingVisas.GhActor actor, String commanderLogin) {
         GithubClient.PrHead head = github.prHead(pr);
+        if (head.headRepo() == null)
+            return null;
+
         if (!head.authorLogin().equals(commanderLogin)) {
             log.info("style autofix for PR {} skipped: commander {} is not the author {}",
                 pr, commanderLogin, head.authorLogin());
@@ -106,7 +109,17 @@ public class StyleFixService {
                     if (!mine.isEmpty())
                         fixed.put(path, Fixers.apply(fixed.get(path), mine));
                 }
-                remaining = checkstyle.check(fixed).violations();
+                CheckstyleRunner.CheckResult checked = checkstyle.check(fixed);
+                // A file checkstyle read before the fix and cannot read after it was broken by the fix: without its
+                // violations it would look fixed. It stays as the author wrote it.
+                List<String> broken = checked.skipped().stream().filter(p -> !first.skipped().contains(p)).toList();
+                if (!broken.isEmpty()) {
+                    log.warn("style autofix for PR {}: the fix made {} unreadable to checkstyle, left as it was", pr,
+                        broken);
+                    broken.forEach(p -> fixed.put(p, files.get(p)));
+                    checked = checkstyle.check(fixed);
+                }
+                remaining = checked.violations();
             }
 
             String check = "[**Check java code**](" + github.checksUrl(pr) + ") check of this PR";

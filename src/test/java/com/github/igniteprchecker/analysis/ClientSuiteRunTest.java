@@ -241,6 +241,25 @@ class ClientSuiteRunTest {
                 + " in 100 master runs"));
     }
 
+    /**
+     * The PHP client's PR branch is {@code pull/69/head}, named as Ignite's PR branches are: its own run came among those
+     * of other PRs, and with two more PRs failing the test its failure cleared itself.
+     */
+    @Test
+    void theRunsOfAPhpClientsPrAreNotAnotherPrs() {
+        when(tc.branchRuns(TOK, "pull/69/head", CONFIG_TEST, SUITE)).thenReturn(List.of(branchRun(BUILD, CLIENT)));
+        when(tc.branchRuns(TOK, "pull/69/head", SQL_TEST, SUITE)).thenReturn(List.of(branchRun(BUILD, CLIENT)));
+        when(tc.finishedRunsParameter(TOK, SUITE, "pull/69/head", "OVERRIDDEN_BRANCH")).thenAnswer(inv ->
+            new LinkedHashMap<>(checkouts));
+        when(tc.otherBranchRuns(TOK, SQL_TEST, SUITE)).thenReturn(List.of(otherPrRun(BUILD, 69, "FAILURE"),
+            otherPrRun(9420002L, 13001, "FAILURE"), otherPrRun(9420001L, 13002, "FAILURE"),
+            otherPrRun(9420000L, 13003, "SUCCESS")));
+
+        AnalysisResult r = analyzer.analyzeSuiteRun(TOK, 69, "pull/69/head", BUILD);
+
+        assertThat(r.blockers()).extracting(TestVerdict::name).containsExactly("test_sql.test_sql_fields_query");
+    }
+
     /** Build of Ignite master failed, so the suite ran nothing: no test is judged, the suite has no result. */
     @Test
     void aSuiteKeptFromRunningByItsBuildIsBroken() {

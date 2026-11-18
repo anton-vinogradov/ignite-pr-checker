@@ -220,4 +220,22 @@ class PrHeadPageTest {
             .contains("<button id=\"statusRetry\" class=\"act hidden\" type=\"button\"")
             .contains(".status-row:not(:has(> #status:not(:empty))) { display: none; }");
     }
+
+    /**
+     * The retries of one PR's verdict were counted for the page: after PR 13575 had used its six, PR 13461 got one
+     * request and the final error at once.
+     */
+    @Test
+    void anotherPrHasItsOwnRetries() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/analyze', { status: 502, body: { error: 'Bad Gateway' } });
+            await page.load('?pr=13575');
+            await page.tick(30000);
+            page.run('openPr')(13461, true, null);
+            await page.settle();
+            report({ status: page.el('status').textContent });
+            """);
+
+        assertThat(out.get("status").asText()).isEqualTo("The service may be busy or restarting. Retrying…");
+    }
 }

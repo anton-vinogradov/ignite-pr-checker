@@ -182,6 +182,41 @@ class RerunWavesTest {
             .doesNotContain("TAIL", "too many to jump");
     }
 
+    /**
+     * A systemic break shows at the end of the chain: the first suites that failed were re-run mid-run, and 31 are
+     * blamed when it ends. The limit of 30 held only before the first re-run, so all 31 went to the top of the queue.
+     */
+    @Test
+    void tooManySuitesAreNotReRunAfterMidRunReRunsEither() {
+        options(true);
+        failMidRun();
+        finished();
+        AnalysisResult many = verdict(IntStream.range(0, 31)
+            .mapToObj(i -> blocker("Cache" + i, 9389000L + i)).toArray(TestVerdict[]::new));
+        when(analyzer.analyze("tc", PR)).thenReturn(Optional.of(many));
+        when(analyzer.analyzeForAction("tc", PR)).thenReturn(Optional.of(many));
+
+        standing.sweep();
+
+        verify(tc, times(3)).triggerBuildReplacingQueued(eq("tc"), anyString(), eq(PR), eq(true), anyString());
+        assertThat(standing.phase(PR, RUN_ALL).reason()).isEqualTo("too-many-suites");
+        assertThat(standing.phase(PR, RUN_ALL).completedWaves()).isEqualTo(1);
+    }
+
+    /**
+     * The chain was cancelled after three of its suites had been re-run mid-run. No settle takes a cancelled chain, so
+     * its page said "settling wave 1 of 2" until a newer RunAll finished, and Post to JIRA was refused meanwhile.
+     */
+    @Test
+    void aCancelledChainKeepsNoWave() {
+        options(true);
+        failMidRun();
+
+        standing.onChainFinished(new RerunTracker.ChainFinished(PR, RUN_ALL, true));
+
+        assertThat(standing.waveStatus(PR, RUN_ALL)).isEmpty();
+    }
+
     /** A chain was mid-run during the upgrade: its waves were kept one per suite. */
     @Test
     void mergesTheMidRunWavesOfAnOlderSnapshot(@TempDir Path dir) throws Exception {

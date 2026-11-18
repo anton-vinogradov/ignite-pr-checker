@@ -48,7 +48,7 @@ class RussianFlakyBoardTest {
 
     @Test
     void theBoardReadsInRussian() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", russian() + BOARD + """
+        JsonNode out = PageScript.run("master.html", russian() + BOARD + """
             await page.load('');
             await press({ fold: 'always' });
             for (const t of [tx, rebalance, nearReader, young]) await press({ row: key(t) });
@@ -108,7 +108,7 @@ class RussianFlakyBoardTest {
         assertThat(texts.get("page").asText()).contains("прошёл", "упал", "Мастер").doesNotContain("Flaky tests");
         assertThat(texts.get("tab").asText()).isEqualTo("Ignite PR Checker — Мастер");
         assertThat(out.get("docs")).hasSize(1);
-        assertThat(out.get("docs").get(0).asText()).endsWith("/docs/features.ru.md#доска-master-flakyhtml");
+        assertThat(out.get("docs").get(0).asText()).endsWith("/docs/features.ru.md#доска-master-masterhtml");
     }
 
     /**
@@ -117,7 +117,7 @@ class RussianFlakyBoardTest {
      */
     @Test
     void theCommitsOfACauseReadInRussian() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", russian() + PageScript.MASTER_CAUSES + """
+        JsonNode out = PageScript.run("master.html", russian() + PageScript.MASTER_CAUSES + """
             await page.load('');
             await press({ commits: 'commit:f93b6d2' });
             report({ texts: { board: page.el('flaky').textContent }, html: page.el('flaky').innerHTML });
@@ -143,7 +143,7 @@ class RussianFlakyBoardTest {
      */
     @Test
     void theProblemSuitesReadInRussian() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", russian() + BOARD + """
+        JsonNode out = PageScript.run("master.html", russian() + BOARD + """
             const cpp = suite('PlatformCppWin', 'Platform C++ CMake', 'P'.repeat(96) + 'XXXX',
                 { prCount: 2, prs: [13583, 13655] });
             const snapshots = suite('Snapshots2', 'Snapshots 2', 'PPO');
@@ -197,7 +197,7 @@ class RussianFlakyBoardTest {
     /** A board with nothing newly broken, nothing found by the filter and nothing at all says so in Russian. */
     @Test
     void theEmptySectionsReadInRussian() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", russian() + BOARD + """
+        JsonNode out = PageScript.run("master.html", russian() + BOARD + """
             board([rebalance]);
             await page.load('');
             await press({ fold: 'always' });
@@ -223,7 +223,7 @@ class RussianFlakyBoardTest {
      */
     @Test
     void anEnvironmentFailureNamesTheFailedRunsInRussian() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", russian() + BOARD + """
+        JsonNode out = PageScript.run("master.html", russian() + BOARD + """
             page.route('/api/test-details', { body: { details: '%s', kind: 'environment' } });
             const streak = always(104, 'TxTest.testRollback', 'PP' + 'FP'.repeat(43) + 'F'.repeat(12),
                 { masterFails: 40 });
@@ -248,7 +248,7 @@ class RussianFlakyBoardTest {
     /** The list may come before the catalog: the board waits for the language, or its English would stay. */
     @Test
     void theBoardWaitsForTheLanguage() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", russian() + BOARD + """
+        JsonNode out = PageScript.run("master.html", russian() + BOARD + """
             const ticks = async n => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
             page.route('/ru.json', async () => { await ticks(20); return { body: CATALOG }; });
             const el = page.el('flaky'), drawn = [];
@@ -267,7 +267,7 @@ class RussianFlakyBoardTest {
     /** The prompt goes to a coding assistant in English; the button then reads its Russian name again. */
     @Test
     void theAiPromptStaysEnglish() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", russian() + BOARD + """
+        JsonNode out = PageScript.run("master.html", russian() + BOARD + """
             await page.load('');
             const ai = control({ ai: key(nearReader) });
             await page.mouse('click', ai);
@@ -287,7 +287,7 @@ class RussianFlakyBoardTest {
 
     @Test
     void aReaderWithoutALoginReadsTheBoardInEnglish() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
+        JsonNode out = PageScript.run("master.html", BOARD + """
             page.route('/api/page-language', { status: 404, body: {} });
             await page.load('');
             report({ board: page.el('flaky').textContent, catalog: page.fetches('/ru.json').length,

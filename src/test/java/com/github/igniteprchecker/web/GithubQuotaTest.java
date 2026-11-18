@@ -104,7 +104,7 @@ class GithubQuotaTest {
         AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
         TcClient tc = new TcClient(new TeamcityProperties("http://" + teamcity.getAddress().getHostString() + ":"
             + teamcity.getAddress().getPort() + "/"), cfg, new Metrics(mapper));
-        runs = new TriggerController(tc, mock(BlockerAnalyzer.class), mock(RerunTracker.class), heads,
+        runs = new TriggerController(tc, mock(RerunTracker.class), heads,
             mock(SuiteBaseline.class), cfg);
         analyze = new AnalyzeController(mock(BlockerAnalyzer.class), mock(RunDeltaStore.class),
             new PendingCommits(tc, client), heads);

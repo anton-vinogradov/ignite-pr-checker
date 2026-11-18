@@ -27,6 +27,7 @@ import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.tc.TcResponseException;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -120,6 +121,21 @@ class TcTokenRefusalTest {
 
         verify(analyzer, times(1)).analyzeForAction("live-tc", PR);
         assertThat(standing.tcTokenRejected(LIVE)).isTrue();
+    }
+
+    /**
+     * The same call reads GitHub on its way. The 401 of the checker's own GitHub token was taken for TeamCity's: the
+     * owner's stored token was dropped and their options paused until they logged in again.
+     */
+    @Test
+    void aRefusalByAnotherServiceDoesNotPauseTheOwner() {
+        runOf(LIVE);
+        when(analyzer.analyzeForAction("live-tc", PR)).thenThrow(HttpClientErrorException.create(
+            HttpStatus.UNAUTHORIZED, "Unauthorized", HttpHeaders.EMPTY, new byte[0], null));
+
+        standing.sweep();
+
+        assertThat(standing.tcTokenRejected(LIVE)).isFalse();
     }
 
     /** A browser still carrying an old token must not swap a working stored token for it. */
@@ -306,8 +322,9 @@ class TcTokenRefusalTest {
             List.of(), List.of(), List.of(), List.of(), 140, 1, false, 0, false, 0, 0, 0, 0, 0);
     }
 
-    private static HttpClientErrorException refused() {
-        return HttpClientErrorException.create(HttpStatus.UNAUTHORIZED, "Unauthorized", HttpHeaders.EMPTY,
-            new byte[0], null);
+    /** TeamCity's 401, as {@link TcClient} throws it. */
+    private static TcResponseException refused() {
+        return new TcResponseException(HttpClientErrorException.create(HttpStatus.UNAUTHORIZED, "Unauthorized",
+            HttpHeaders.EMPTY, new byte[0], null));
     }
 }

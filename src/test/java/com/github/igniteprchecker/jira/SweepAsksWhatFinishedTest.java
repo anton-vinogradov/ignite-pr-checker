@@ -103,6 +103,25 @@ class SweepAsksWhatFinishedTest {
             .isBetween((first - 300_000) / 1000, (first - 300_000) / 1000 + 5);
     }
 
+    /**
+     * A sweep whose question TeamCity failed knows of no RunAll finished before it, yet the next one asked from five
+     * minutes before it: a run of a PR out of the list that finished earlier was never told, and its verdict never
+     * posted.
+     */
+    @Test
+    void theSweepAfterAFailedQuestionAsksForItsTimeToo() {
+        when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenThrow(new IllegalStateException("TeamCity answered 502"))
+            .thenReturn(Optional.of(Map.of()));
+
+        long first = System.currentTimeMillis();
+        standing.sweep();
+        standing.sweep();
+
+        ArgumentCaptor<Long> since = ArgumentCaptor.forClass(Long.class);
+        verify(tc, times(2)).prsWithChainsFinishedAfter(eq("tc"), since.capture());
+        assertThat(since.getAllValues().get(1)).isBetween((first - 86_400_000) / 1000, (first - 86_400_000) / 1000 + 5);
+    }
+
     @Test
     void withoutAnAnswerFromTeamCityEveryPrIsLookedUp() {
         when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.empty())

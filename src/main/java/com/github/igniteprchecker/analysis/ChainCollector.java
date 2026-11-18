@@ -509,7 +509,7 @@ public class ChainCollector {
 
             ShrunkSuite s = shrunk(dep.buildTypeId(), dep.buildType() == null ? dep.buildTypeId() : dep.buildType().name(),
                 dep.id(), dep.testOccurrences().count(), master);
-            if (s.dropPct() >= SHRINK_PCT)
+            if (!isFullRun(s.tests(), master))
                 out.add(s);
         }
         out.sort(java.util.Comparator.comparingInt(ShrunkSuite::dropPct).reversed());

@@ -67,4 +67,16 @@ class DeletedForkHeadTest {
         assertThat(answer.suiteCheck().sha()).isEqualTo(SHA);
         server.verify();
     }
+
+    /** The style fix and the suite fix read the head to learn where to push: with no fork they got a NullPointerException. */
+    @Test
+    void theHeadOfADeletedForkNamesNoRepository() {
+        server.expect(requestTo("https://api.github.com/repos/apache/ignite/pulls/12000"))
+            .andRespond(withSuccess("""
+                {"number":12000,"state":"open","user":{"login":"someone"},
+                 "head":{"label":"unknown:ignite-1","ref":"ignite-1","sha":"%s","repo":null}}
+                """.formatted(SHA), MediaType.APPLICATION_JSON));
+
+        assertThat(github.prHead(12000)).isEqualTo(new GithubClient.PrHead("someone", null, "ignite-1", SHA));
+    }
 }

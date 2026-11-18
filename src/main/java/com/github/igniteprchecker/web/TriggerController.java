@@ -1,8 +1,5 @@
 package com.github.igniteprchecker.web;
 
-import com.github.igniteprchecker.analysis.BlockerAnalyzer;
-import com.github.igniteprchecker.analysis.model.AnalysisResult;
-import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.github.IgnitePrRuns;
 import com.github.igniteprchecker.tc.QueuedBelowTopException;
@@ -13,7 +10,6 @@ import com.github.igniteprchecker.tc.TcResponseException;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -34,23 +30,21 @@ public class TriggerController {
 
     private final TcClient tc;
     private final IgnitePrRuns ignite;
-    private final BlockerAnalyzer analyzer;
     private final RerunTracker reruns;
     private final PrHeads heads;
     private final com.github.igniteprchecker.analysis.SuiteBaseline baseline;
     private final String runAllBuildType;
 
-    public TriggerController(TcClient tc, BlockerAnalyzer analyzer, RerunTracker reruns, PrHeads heads,
+    public TriggerController(TcClient tc, RerunTracker reruns, PrHeads heads,
         com.github.igniteprchecker.analysis.SuiteBaseline baseline, AnalysisProperties cfg) {
-        this(tc, analyzer, reruns, heads, baseline, cfg, IgnitePrRuns.unpinned(tc));
+        this(tc, reruns, heads, baseline, cfg, IgnitePrRuns.unpinned(tc));
     }
 
     @Autowired
-    public TriggerController(TcClient tc, BlockerAnalyzer analyzer, RerunTracker reruns, PrHeads heads,
+    public TriggerController(TcClient tc, RerunTracker reruns, PrHeads heads,
         com.github.igniteprchecker.analysis.SuiteBaseline baseline, AnalysisProperties cfg, IgnitePrRuns ignite) {
         this.tc = tc;
         this.ignite = ignite;
-        this.analyzer = analyzer;
         this.reruns = reruns;
         this.heads = heads;
         this.baseline = baseline;
@@ -89,31 +83,6 @@ public class TriggerController {
         }
 
         return ResponseEntity.ok(Map.of("triggered", List.of(queued), "replaced", replaced));
-    }
-
-    /** Re-run only the suites that contain the current blockers. */
-    @PostMapping("/rerun-blockers")
-    public ResponseEntity<?> rerunBlockers(@RequestParam int pr, @RequestParam(defaultValue = "false") boolean top,
-        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
-        Optional<AnalysisResult> res = analyzer.analyze(token, pr);
-        if (res.isEmpty())
-            return ResponseEntity.status(404).body(Map.of("error", "no RunAll build found for PR " + pr));
-
-        List<String> suites = res.get().blockers().stream()
-            .map(TestVerdict::suite)
-            .filter(s -> s != null && !s.isBlank())
-            .distinct()
-            .toList();
-
-        if (suites.isEmpty())
-            return ResponseEntity.badRequest().body(Map.of("error", "no blocker suites to re-run"));
-
-        IgnitePrRuns.Prepared prepared = ignite.prepare(pr, suites);
-        List<Map<String, Object>> triggered = suites.stream()
-            .map(suite -> queued(pr, () -> ignite.queue(token, prepared, suite, top)))
-            .toList();
-
-        return ResponseEntity.ok(Map.of("triggered", triggered));
     }
 
     /** Re-run a set of suites (comma-separated buildTypeIds) — backs the per-section Rerun buttons. */

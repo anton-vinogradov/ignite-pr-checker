@@ -58,8 +58,8 @@ Ignite PR Checker отвечает контрибьютору [Apache Ignite](ht
   цепочку сборок **Extensions: All Tests** для `apache/ignite-extensions`, с головным коммитом PR и master Ignite.
   Открой `/extensions?pr=42`: там результаты сьют, перезапуск всей цепочки и итоговый комментарий с вердиктом. См.
   [PR Extensions](docs/features.ru.md#pr-extensions).
-- **Доска master** на `/flaky.html`: тесты, которые падают на master, сначала недавно сломанные, потом сьюты, чьи
-  прогоны master завершаются без вердикта по тестам, флакующие тесты и те, что падают всегда. См. [Доска master](docs/features.ru.md#доска-master-flakyhtml).
+- **Доска master** на `/master.html`: тесты, которые падают на master, сначала недавно сломанные, потом сьюты, чьи
+  прогоны master завершаются без вердикта по тестам, флакующие тесты и те, что падают всегда. См. [Доска master](docs/features.ru.md#доска-master-masterhtml).
 - **Страница статуса**: здоровье, память, прогрев, вызовы TeamCity, GitHub и JIRA, действующие настройки. Живая:
   <https://ignite-pr-checker.is-a.dev/status.html>.
 
@@ -589,7 +589,7 @@ Tomcat и Log4j. Ещё раздел перечисляет открытые PR 
 | `update` | Обновление из приложения, которое просит `update.sh` поставить релиз. |
 | `config`, `session` | Настройки и зашифрованная cookie сессии. |
 
-Страницы — статические файлы `index.html`, `flaky.html` и `status.html`, их код — в `static/*.js`, а общие помощники —
+Страницы — статические файлы `index.html`, `master.html` и `status.html`, их код — в `static/*.js`, а общие помощники —
 в `static/common.js`.
 
 ## Разработка

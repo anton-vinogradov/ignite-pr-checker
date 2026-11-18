@@ -393,9 +393,9 @@ class MasterSuitesTest {
         MasterSuites suites = suites(100);
         LeaderboardController board = new LeaderboardController(flaky(100), suites, analysis(100));
 
-        JsonNode unread = mapper.valueToTree(board.topFlaky(40));
+        JsonNode unread = mapper.valueToTree(board.topFlaky(40, false));
         suites.scan();
-        JsonNode answer = mapper.valueToTree(board.topFlaky(40));
+        JsonNode answer = mapper.valueToTree(board.topFlaky(40, false));
 
         assertThat(unread.get("suiteChains").asInt()).isZero();
         assertThat(unread.get("suites")).isEmpty();

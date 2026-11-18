@@ -1,8 +1,10 @@
 package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -14,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * testGroupReservation's 38 KB of output, fetched from ci2 again at each "why?" and "ai", and labelled
@@ -38,6 +41,14 @@ class TestDetailsTest {
         assertThat(why.get("details")).startsWith("expected:<false> but was:<true>\n------- Stdout: -------\n")
             .endsWith("characters kept; the whole output is in TeamCity]");
         verify(tc, times(1)).testDetails(anyString(), anyString());
+    }
+
+    /** The parameter went to TeamCity as a locator: this one asks for the output of every test of the build. */
+    @Test
+    void aLocatorThatIsNotOneOccurrenceIsRefused() {
+        assertThatThrownBy(() -> details.details("build:(id:9388909),count:100000", "t"))
+            .isInstanceOf(ResponseStatusException.class).hasMessageContaining("400");
+        verify(tc, never()).testDetails(anyString(), anyString());
     }
 
     @Test

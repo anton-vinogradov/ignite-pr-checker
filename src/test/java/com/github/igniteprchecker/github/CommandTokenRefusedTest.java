@@ -27,6 +27,7 @@ import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.style.StyleFixService;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.tc.TcResponseException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -64,8 +65,8 @@ class CommandTokenRefusedTest {
             new StandingVisas.OptionChange(false, true, false, false, null));
         standing.linkGhLogin("nsamelchev", "expired-tc", GhUsers.of("NSAmelchev"));
         when(tc.cancelOwnRunAllChains(eq("expired-tc"), eq(PR), anyString())).thenThrow(
-            HttpClientErrorException.create(HttpStatus.UNAUTHORIZED, "Unauthorized", HttpHeaders.EMPTY, new byte[0],
-                null));
+            new TcResponseException(HttpClientErrorException.create(HttpStatus.UNAUTHORIZED, "Unauthorized",
+                HttpHeaders.EMPTY, new byte[0], null)));
     }
 
     @Test

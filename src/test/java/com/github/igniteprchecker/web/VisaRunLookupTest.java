@@ -93,6 +93,18 @@ class VisaRunLookupTest {
         verify(tc, times(1)).buildEnd(anyString(), anyLong());
     }
 
+    /**
+     * The request names the PR and the build apart. Any PR number next to a finished build of someone with the options
+     * on read as that PR's run: the row told of it, and /api/settling had the PR settled.
+     */
+    @Test
+    void aBuildOfAnotherBranchIsNotThePrsRun() {
+        when(tc.buildEnd("reviewer-tc", RUN_ALL)).thenReturn(Optional.of(build("finished", inAMinute(), false)));
+
+        assertThat(controller.run("reviewer-tc", PR + 1, RUN_ALL)).isEqualTo(StandingVisas.Run.UNKNOWN);
+        assertThat(controller.run("reviewer-tc", PR, RUN_ALL).starter()).isEqualTo(USER);
+    }
+
     /** The page tells the server nothing of the run: when it finished is TeamCity's word. */
     @Test
     void whenTheRunFinishedComesFromTeamCity() {
@@ -153,7 +165,7 @@ class VisaRunLookupTest {
     }
 
     private TcModel.Build build(String state, String finishDate, boolean cancelled) {
-        return new TcModel.Build(RUN_ALL, null, state, null, null, null, null, null, finishDate, null, null, null,
+        return new TcModel.Build(RUN_ALL, null, state, "pull/" + PR + "/head", null, null, null, null, finishDate, null, null, null,
             new TcModel.Triggered("user", new TcModel.User(USER)), null, null, null, null, null,
             cancelled ? new TcModel.CanceledInfo("Canceled", new TcModel.User(USER)) : null);
     }

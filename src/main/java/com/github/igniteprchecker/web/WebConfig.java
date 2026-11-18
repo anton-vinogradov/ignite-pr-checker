@@ -32,7 +32,7 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(auth)
-            .addPathPatterns("/api/analyze", "/api/refresh", "/api/trigger", "/api/rerun-blockers",
+            .addPathPatterns("/api/analyze", "/api/refresh", "/api/trigger",
                 "/api/rerun-suite", "/api/rerun-suites", "/api/runs", "/api/cancel-all", "/api/update", "/api/restart", "/api/users", "/api/github-token", "/api/github/link", "/api/github/unlink", "/api/visa", "/api/auto-visa-all", "/api/test-details",
                 "/api/flush-caches", "/api/delta", "/api/causes", "/api/progress", "/api/pending",
                 "/api/settling", "/api/logins", "/api/logins/end", "/api/logins/end-others");

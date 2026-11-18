@@ -72,7 +72,7 @@ class TeamCityRefusalTest {
             + server.getAddress().getPort() + "/"), cfg, new Metrics(Jackson2Defaults.mapper()));
 
         mvc = MockMvcBuilders.standaloneSetup(
-                new TriggerController(tc, analyzer, mock(RerunTracker.class), mock(PrHeads.class),
+                new TriggerController(tc, mock(RerunTracker.class), mock(PrHeads.class),
                     mock(SuiteBaseline.class), cfg),
                 new AnalyzeController(analyzer, mock(RunDeltaStore.class), mock(PendingCommits.class),
                     mock(PrHeads.class)))

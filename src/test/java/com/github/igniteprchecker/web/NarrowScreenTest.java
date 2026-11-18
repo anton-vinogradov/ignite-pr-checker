@@ -217,7 +217,7 @@ class NarrowScreenTest {
      */
     @Test
     void aRussianRunChipWrapsOnAPhone() throws Exception {
-        assertThat(rule(narrow("flaky.html"), "html[lang=\"ru\"] .live")).contains("white-space: normal");
+        assertThat(rule(narrow("master.html"), "html[lang=\"ru\"] .live")).contains("white-space: normal");
     }
 
     /** One top bar for the three pages, in the stylesheet they share. */

@@ -76,11 +76,6 @@ public class IgnitePrRuns {
             : tc.queuePinned(token, prepared.runs().get(runAll), top, COMMENT);
     }
 
-    public TcModel.Build queue(String token, Prepared prepared, String suite, boolean top) {
-        return prepared.runs().isEmpty() ? tc.triggerBuild(token, suite, prepared.pr(), top)
-            : tc.queuePinned(token, prepared.runs().get(suite), top, COMMENT);
-    }
-
     public TcModel.Build queueOwnReplacingQueued(String token, String username, Prepared prepared, String suite,
         boolean top) {
         return prepared.runs().isEmpty()
