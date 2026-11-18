@@ -23,7 +23,7 @@ UNIT
 
 cat > "$units/ignite-pr-checker-deploy.service" <<'UNIT'
 [Unit]
-Description=Install the latest manual Ignite PR Checker deployment
+Description=Install the latest successful Ignite PR Checker deployment
 After=network-online.target
 Wants=network-online.target
 

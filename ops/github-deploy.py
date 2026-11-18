@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install the JAR from the latest successful manual Deploy run."""
+"""Install the JAR from the latest successful Deploy run on main."""
 
 import fcntl
 import hashlib
@@ -85,10 +85,11 @@ class Deployer:
         return get_json(f"https://api.github.com/repos/{REPO}/{path}")
 
     def latest(self):
-        runs = self.api("actions/workflows/deploy.yml/runs?event=workflow_dispatch&branch=main&status=success&per_page=1")
+        runs = self.api("actions/workflows/deploy.yml/runs?branch=main&status=success&per_page=1")
         for run in runs["workflow_runs"]:
             commit = run["head_sha"]
-            if (run["path"] == WORKFLOW and run["head_branch"] == "main" and run["event"] == "workflow_dispatch"
+            if (run["path"] == WORKFLOW and run["head_branch"] == "main"
+                    and run["event"] in {"push", "workflow_dispatch"}
                     and run["status"] == "completed" and run["conclusion"] == "success"
                     and run["head_repository"]["full_name"] == REPO and re.fullmatch(r"[0-9a-f]{40}", commit)
                     and all(type(run[key]) is int and run[key] > 0 for key in ("id", "run_number", "run_attempt"))):
