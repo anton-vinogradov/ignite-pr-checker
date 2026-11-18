@@ -1,14 +1,12 @@
 name: ci
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   workflow_call:
     inputs:
       deploy-artifact:
-        description: Keep the checked JAR for this run's manual Deploy job
+        description: Keep the checked JAR for this run's Deploy job
         type: boolean
         default: false
     outputs:
@@ -29,7 +27,7 @@ jobs:
   build:
     if: >-
       !inputs.deploy-artifact || (github.repository == 'anton-vinogradov/ignite-pr-checker' &&
-      github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch')
+      github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch'))
     runs-on: ubuntu-latest
     outputs:
       artifact-id: ${{ steps.deploy-jar.outputs.artifact-id }}

@@ -295,14 +295,14 @@ service. Before the start, systemd runs `update.sh` as root, which:
 
 **Deploy from GitHub.** Enable this mode on a working systemd installation with
 `sudo bash ops/install-github-deploy.sh` from a trusted checkout. It installs a timer and replaces the in-app
-release update with server-side deployment. In GitHub, open **Actions → Deploy → Run workflow** and select
-**main**. Actions tests and publishes that commit. The server checks for a successful Deploy run every three
-minutes and verifies the downloaded JAR against the digest recorded in that run. GitHub needs no server credentials.
+release update with server-side deployment. When a merge or push updates `main`, **Deploy** tests the new commit
+and publishes its JAR if the tests pass. The server checks for a successful Deploy run every three minutes and
+verifies the downloaded JAR against the digest recorded in that run. GitHub needs no server credentials.
 
 The **GitHub deployment** card on **Status** shows the current step and the last successful deployment.
 After a restart, the server checks that the new JAR answers with the expected version and commit. If it fails, the
-server restores the previous JAR, starts it and checks it too. To retry a rejected deployment, launch **Deploy**
-again. The application state stays on disk when the server restores a JAR.
+server restores the previous JAR, starts it and checks it too. To deploy the current `main` again, open
+**Actions → Deploy → Run workflow** and select **main**. The application state stays on disk when the server restores a JAR.
 
 To switch back to updates from the page, disable `ignite-pr-checker-deploy.timer`, wait for
 `ignite-pr-checker-deploy.service` to finish, remove

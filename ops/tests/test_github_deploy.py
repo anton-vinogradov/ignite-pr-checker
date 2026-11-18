@@ -65,7 +65,7 @@ class LocalDeployer(deploy.Deployer):
     def api(self, path):
         self.api_calls.append(path)
         digest = hashlib.sha256(self.new_jar).hexdigest()
-        if path.startswith("actions/workflows/"):
+        if path == "actions/workflows/deploy.yml/runs?branch=main&status=success&per_page=1":
             return {"workflow_runs": [self.run]}
         if path == "actions/runs/101/attempts/1/jobs":
             return {"jobs": [{
@@ -129,6 +129,23 @@ class GithubDeployTest(unittest.TestCase):
 
     def updater(self):
         return LocalDeployer(self.app, self.env, self.old_jar, self.new_jar)
+
+    def test_only_successful_pushes_and_manual_runs_on_main_are_eligible(self):
+        """Given Actions run metadata, only successful Deploy runs from this repository's main qualify."""
+        updater = self.updater()
+        manual = updater.run.copy()
+        push = {**manual, "event": "push"}
+        for run, eligible in [
+            (manual, True),
+            (push, True),
+            ({**push, "head_branch": "feature"}, False),
+            ({**push, "head_repository": {"full_name": "fork/ignite-pr-checker"}}, False),
+            ({**push, "event": "pull_request"}, False),
+            ({**push, "conclusion": "failure"}, False),
+        ]:
+            with self.subTest(run=run):
+                updater.run = run
+                self.assertEqual(run if eligible else None, updater.latest())
 
     def test_success_publishes_only_the_confirmed_previous_jar(self):
         """Given a working old JAR, when the exact candidate answers, then the old JAR becomes the rollback copy."""
