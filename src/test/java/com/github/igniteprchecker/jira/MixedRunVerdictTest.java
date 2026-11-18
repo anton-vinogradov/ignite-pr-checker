@@ -42,12 +42,12 @@ class MixedRunVerdictTest {
         String md = visas.composeMarkdown(13709, r, 3, RUN_ALL_COMMIT);
         String wiki = visas.compose(13709, r, 3, RUN_ALL_COMMIT);
 
-        assertThat(md).contains("- " + MIXED + "\n")
-            .contains("🔎 **No blockers found — but the run above can't prove the PR is clean.**")
-            .doesNotContain("pushed since this run").doesNotContain("✅ **No blockers**");
-        assertThat(wiki).contains("- " + MIXED + "\n")
-            .contains("(?) *No blockers found — but the run above can't prove the PR is clean.*")
-            .doesNotContain("pushed since this run").doesNotContain("(/) *No blockers*");
+        assertThat(md).startsWith("⚠️ **No blockers found in a mixed run** · ")
+            .contains("\n\nM" + MIXED.substring(1) + ".\n\n**Next:** run RunAll on the PR's head.\n\n")
+            .doesNotContain("pushed since this run");
+        assertThat(wiki).startsWith("(!) *No blockers found in a mixed run* — ")
+            .contains("\n\nM" + MIXED.substring(1) + ".\n\n")
+            .doesNotContain("pushed since this run");
     }
 
     /** A visa of the same commit that was not a mixed run is not repeated by this one, nor this one by the next. */

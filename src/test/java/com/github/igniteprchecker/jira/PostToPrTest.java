@@ -332,8 +332,7 @@ class PostToPrTest {
             AUTHOR, null);
 
         verify(github).appComment(PR, REVIEWER, visas.composeMarkdown(PR, withBlocker(), null, null)
-            + "\n\n➡️ **Next:** fix the blockers, push, and run RunAll again — a `/run-all` comment here does it when PR"
-            + " commands are on in the checker's ⚙.\n\n_Posted by ci2 user reviewer from the checker's page._");
+            + "\n\n_Posted by ci2 user reviewer from the checker's page._");
         verify(github).appEdit(PR, REVIEWER, 777L, visas.composeMarkdown(PR, clean(), null, null)
             + "\n\n_Updated by ci2 user reviewer from the checker's page._");
         assertThat(first).isEqualTo(new StandingVisas.CommentPost(StandingVisas.CommentPost.POSTED, PRESS_URL, 0));
@@ -365,7 +364,7 @@ class PostToPrTest {
         when(github.canWrite()).thenReturn(true);
         standing.sweep();
 
-        verify(github).appEdit(eq(PR), eq(AUTHOR), eq(777L), startsWith("**[Ignite PR Checker]"));
+        verify(github).appEdit(eq(PR), eq(AUTHOR), eq(777L), startsWith("❌ **1 blocker in 1 suite** · "));
         verify(github, times(1)).appComment(eq(PR), eq(REVIEWER), anyString());
         verify(github, times(1)).appComment(eq(PR), eq(AUTHOR), anyString());
         assertThat(standing.verdictCommentDue(AUTHOR, PR, RUN)).isFalse();
@@ -390,7 +389,7 @@ class PostToPrTest {
         when(github.canWrite()).thenReturn(true);
         standing.sweep();
 
-        verify(github).appEdit(eq(PR), eq(AUTHOR), eq(777L), startsWith("**[Ignite PR Checker]"));
+        verify(github).appEdit(eq(PR), eq(AUTHOR), eq(777L), startsWith("❌ **1 blocker in 1 suite** · "));
         verify(github, times(1)).appComment(eq(PR), eq(AUTHOR), anyString());
         assertThat(standing.verdictCommentId(AUTHOR, PR, RUN)).hasValue(777L);
     }

@@ -246,8 +246,8 @@ class RerunWavesTest {
 
         ArgumentCaptor<String> comment = ArgumentCaptor.forClass(String.class);
         verify(github).appComment(eq(PR), any(), comment.capture());
-        assertThat(comment.getValue()).endsWith("➡️ **Next:** fix the blockers, push, and run RunAll again — a "
-            + "`/run-all` comment here does it when PR commands are on in the checker's ⚙.");
+        assertThat(comment.getValue()).contains("\n\n**Next:** fix the blockers, push, and run RunAll again — a "
+            + "`/run-all` comment here does it when PR commands are on in the checker's ⚙.\n\n<sub>RunAll ");
     }
 
     @Test

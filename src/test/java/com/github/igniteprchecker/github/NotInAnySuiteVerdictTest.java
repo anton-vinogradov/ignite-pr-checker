@@ -28,7 +28,7 @@ class NotInAnySuiteVerdictTest {
     private final PrTestRuns prTests = mock(PrTestRuns.class);
 
     private final VisaService visas = new VisaService(new TeamcityProperties("https://ci2.example/"),
-        "https://checker.example", new GithubProperties("apache/ignite", null, 300), prTests);
+        "https://checker.example", new GithubProperties("apache/ignite", null, 300), prTests, null);
 
     @Test
     void theCommentAndTheVisaNameTheClassesInNoSuite() {
@@ -40,14 +40,14 @@ class NotInAnySuiteVerdictTest {
         String md = visas.composeMarkdown(PR, clean(), null, null);
         String wiki = visas.compose(PR, clean(), null, null);
 
-        assertThat(md).contains("✅ **No blockers** — nothing in this run looks caused by this PR.")
+        assertThat(md).startsWith("✅ **No blockers** · ")
             .contains("\n\n⚠️ **2 test classes are in no test suite**, so CI never runs them: `SslContextReloadTest`, "
                 + "`SslRenewalTest` ([Ignite's abandoned-tests check](" + JOB + ") on `9a8b7c6`). Add each to a "
                 + "test suite or mark it `@Ignore`.\n\n<sub>");
         assertThat(wiki).contains("(/) *No blockers*")
             .contains("\n\n(!) *2 test classes are in no test suite*, so CI never runs them: {{SslContextReloadTest}}, "
                 + "{{SslRenewalTest}} ([Ignite's abandoned-tests check|" + JOB + "] on {{9a8b7c6}}). Add each to a "
-                + "test suite or mark it {{@Ignore}}.\n\n_What each label");
+                + "test suite or mark it {{@Ignore}}.\n\n_RunAll ");
         assertThat(PrCommands.readsAsCommand(md)).isFalse();
     }
 

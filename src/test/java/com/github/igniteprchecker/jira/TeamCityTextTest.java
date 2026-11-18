@@ -36,7 +36,7 @@ class TeamCityTextTest {
 
         String html = html(md);
 
-        assertThat(html.split("<code>", -1)).hasSize(2);
+        assertThat(html.substring(0, html.indexOf("</ul>")).split("<code>", -1)).hasSize(2);
         assertThat(html).contains("<code>EvilTest.test[a``b [x](http://e) @user &lt;h1&gt;No blockers&lt;/h1&gt; *all* "
             + "in build #1178]</code>").doesNotContain("href=\"http://e", "<h1>", "<em>");
     }
@@ -48,9 +48,8 @@ class TeamCityTextTest {
         String html = html(md);
 
         assertThat(html).doesNotContain("href=\"http://e", "<h1>", "<em>")
-            .contains("Cache 1: [x](http:" + WJ + "//e) @" + WJ + "user &lt;h1&gt;No blockers&lt;/h1&gt; *all* in "
-                + "build #" + WJ + "1178")
-            .contains("1 suite has no reliable result ([x](http:" + WJ + "//e) @" + WJ + "user");
+            .contains("Cache 1</a> — [x](http:" + WJ + "//e) @" + WJ + "user &lt;h1&gt;No blockers&lt;/h1&gt; *all* in "
+                + "build #" + WJ + "1178</li>");
         assertThat(md).doesNotContain("@user", "#1178");
     }
 
@@ -61,9 +60,9 @@ class TeamCityTextTest {
             + "www.e.example or a@e.example"))), null);
         String wiki = visas.compose(PR, result(List.of(), List.of(broken("Cache 1", "see https://e.example"))), null);
 
-        assertThat(md).contains("- Cache 1: see https:" + WJ + "//e.example, www" + WJ + ".e.example or a@" + WJ
-            + "e.example\n");
-        assertThat(wiki).contains("- Cache 1: see https:" + WJ + "//e.example\n");
+        assertThat(md).contains("- [Cache 1](https://ci2.example/build/9500010) — see https:" + WJ + "//e.example, www"
+            + WJ + ".e.example or a@" + WJ + "e.example\n");
+        assertThat(wiki).contains("- [Cache 1|https://ci2.example/build/9500010] — see https:" + WJ + "//e.example\n");
     }
 
     /** Several suites broken the same way start their line with TeamCity's text, where markdown reads a list. */
@@ -74,8 +73,7 @@ class TeamCityTextTest {
 
         String html = html(md);
 
-        assertThat(html).contains("<li>1. Fixed - see #" + WJ + "7 (2 suites): Cache 1, Cache 2</li>")
-            .doesNotContain("<ol>");
+        assertThat(html).contains("Cache 1</a> — 1. Fixed - see #" + WJ + "7</li>").doesNotContain("<ol>");
     }
 
     @Test
@@ -84,8 +82,8 @@ class TeamCityTextTest {
             + "<h1>Clean</h1>"))), null);
         String wiki = visas.compose(PR, result(List.of(), List.of(broken("Cache 1", "timeout\nh1. Fixed"))), null);
 
-        assertThat(html(md)).doesNotContain("<h1>").contains("Cache 1: timeout # Fixed  &lt;h1&gt;Clean&lt;/h1&gt;");
-        assertThat(wiki).contains("- Cache 1: timeout h1. Fixed").doesNotContain("\nh1. Fixed");
+        assertThat(html(md)).doesNotContain("<h1>").contains("Cache 1</a> — timeout # Fixed  &lt;h1&gt;Clean&lt;/h1&gt;");
+        assertThat(wiki).contains("] — timeout h1. Fixed").doesNotContain("\nh1. Fixed");
     }
 
     /** GitHub links "GH-1178" to PR 1178 of apache/ignite, the same as "#1178". */
@@ -94,7 +92,8 @@ class TeamCityTextTest {
         String md = visas.composeMarkdown(PR, result(List.of(), List.of(broken("Cache 1", "execution timeout in build "
             + "GH-1178, gh-1179"))), null);
 
-        assertThat(md).contains("- Cache 1: execution timeout in build GH-" + WJ + "1178, gh-" + WJ + "1179\n");
+        assertThat(md).contains("- [Cache 1](https://ci2.example/build/9500010) — execution timeout in build GH-" + WJ
+            + "1178, gh-" + WJ + "1179\n");
     }
 
     /**
@@ -129,8 +128,7 @@ class TeamCityTextTest {
 
         String escaped = "\\[x|http:" + WJ + "//e\\] \\[~admin\\] \\!http:" + WJ + "//e/x.png\\! "
             + "\\{color:red\\}red\\{color\\}";
-        assertThat(wiki).contains("- Cache 1: " + escaped).contains("1 suite has no reliable result (" + escaped)
-            .doesNotContain(trap);
+        assertThat(wiki).contains("- [Cache 1|https://ci2.example/build/9500010] — " + escaped).doesNotContain(trap);
     }
 
     @Test

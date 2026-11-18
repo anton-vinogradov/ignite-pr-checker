@@ -50,7 +50,7 @@ class OneCommentPerRunTest {
 
     private static final String PR_URL = "https://github.com/apache/ignite/pull/" + PR;
 
-    private static final String VERDICT = "@Author **[Ignite PR Checker]";
+    private static final String VERDICT = "@Author ✅ **No blockers**";
 
     private static final String NOTE = "🎨 _Checkstyle autofix: fixed 2 of 2 violations in 1 file and pushed"
         + " `abc1234` to your branch `IGNITE-28999` — `git pull` before your next push._";
@@ -119,15 +119,15 @@ class OneCommentPerRunTest {
         standing.change("author", "tc-a", null, "gh-pat", new StandingVisas.OptionChange(null, null, true, true,
             null));
         when(styleFix.fixForCommand(eq(PR), any(), eq("Author"))).thenReturn(NOTE);
-        when(github.commentBody(79L)).thenReturn(Optional.of(VERDICT + "(https://checker.example/?pr=13440)** verdict"
-            + " · RunAll build [9400000]\n"));
+        when(github.commentBody(79L)).thenReturn(Optional.of(VERDICT + " · [full verdict]"
+            + "(https://checker.example/ignite?pr=13440)\n"));
         command();
         settled(this::verdictLanded);
 
         commands.updateEtas();
 
-        verify(github).appEdit(PR, "author", 79L, VERDICT + "(https://checker.example/?pr=13440)** verdict · RunAll"
-            + " build [9400000]\n\n" + NOTE);
+        verify(github).appEdit(PR, "author", 79L, VERDICT + " · [full verdict](https://checker.example/"
+            + "ignite?pr=13440)\n\n" + NOTE);
         verify(github).appDelete(PR, "author", 77L);
         verify(github, never()).appComment(eq(PR), any(), contains("the verdict of your `/run-all` is ready"));
     }

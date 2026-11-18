@@ -103,7 +103,7 @@ class OneCleanRuleTest {
         Object caveat = served.pending(13636, r.buildId(), "t").get("caveat");
 
         assertThat(caveat).isEqualTo("28 commits pushed since this run — it tested older code");
-        assertThat(visas.composeMarkdown(13636, r, 28, HEAD)).contains("- " + caveat + "\n");
+        assertThat(visas.composeMarkdown(13636, r, 28, HEAD)).startsWith("⏩ **Outdated: 28 commits pushed since this run**");
         assertThat(served.pending(13636, r.buildId(), "t"))
             .containsEntry("caveat", "1 commit pushed since this run — it tested older code");
     }
@@ -122,8 +122,10 @@ class OneCleanRuleTest {
         assertThat(wiki.contains("No proven blockers yet")).as("the visa waits for a re-run")
             .isEqualTo(expected == Standing.WATCH);
         boolean unproven = expected != Standing.CLEAN && expected != Standing.WATCH && expected != Standing.BLOCKERS;
-        assertThat(md.contains("can't prove the PR is clean")).as("the PR comment can't prove it").isEqualTo(unproven);
-        assertThat(wiki.contains("can't prove the PR is clean")).as("the visa can't prove it").isEqualTo(unproven);
+        assertThat(md.startsWith("❌") || md.startsWith("✅")).as("the PR comment can't prove it").isEqualTo(
+            expected == Standing.BLOCKERS && ahead == null || expected == Standing.CLEAN);
+        assertThat(wiki.startsWith("(x) *") || wiki.startsWith("(/)")).as("the visa can't prove it").isEqualTo(
+            expected == Standing.BLOCKERS && ahead == null || expected == Standing.CLEAN);
     }
 
     private static AnalysisResult verdict(int pr, List<TestVerdict> blockers, List<TestVerdict> watch,

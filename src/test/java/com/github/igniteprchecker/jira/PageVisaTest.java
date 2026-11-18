@@ -119,9 +119,9 @@ class PageVisaTest {
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
         verify(jira).updateComment(eq("jira-pat"), eq(ISSUE), eq(COMMENT), body.capture());
         assertThat(body.getValue()).isEqualTo(visas.compose(PR, mixed(), null, null) + POSTED_BY)
-            .contains("- mixed run — Control Utility 5 re-ran on 9b02561, the rest of the RunAll ran on c577b18; only"
-                + " a RunAll of the PR's head can prove it clean")
-            .contains("No blockers found — but the run above can't prove the PR is clean.");
+            .startsWith("(!) *No blockers found in a mixed run* — ")
+            .contains("\n\nMixed run — Control Utility 5 re-ran on 9b02561, the rest of the RunAll ran on c577b18; only"
+                + " a RunAll of the PR's head can prove it clean.\n\n");
         assertThat(posted).isEqualTo(new StandingVisas.PagePost(StandingVisas.PagePost.EDITED, ISSUE, URL, 0));
         verify(jira, times(1)).addCommentWithId(anyString(), anyString(), anyString());
         assertThat(journal.views(AUTHOR, "laptop", "Firefox on Linux").get(0))

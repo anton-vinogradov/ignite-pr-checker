@@ -87,8 +87,8 @@ class CheckersVerdictCommentTest {
 
         standing.sweep();
 
-        verify(github).appComment(eq(PR), eq(AUTHOR), startsWith("@anton-vinogradov **[Ignite PR Checker]"
-            + "(https://checker.example/ignite?pr=13335)** verdict · RunAll build [9389046]"));
+        verify(github).appComment(eq(PR), eq(AUTHOR), startsWith("@anton-vinogradov ❌ **1 blocker in 1 suite** · "
+            + "[full verdict](https://checker.example/ignite?pr=13335)\n\n"));
     }
 
     @Test
@@ -97,7 +97,7 @@ class CheckersVerdictCommentTest {
 
         standing.sweep();
 
-        verify(github).appComment(eq(PR), eq(AUTHOR), startsWith("**[Ignite PR Checker]"));
+        verify(github).appComment(eq(PR), eq(AUTHOR), startsWith("❌ **1 blocker in 1 suite** · "));
     }
 
     /**
