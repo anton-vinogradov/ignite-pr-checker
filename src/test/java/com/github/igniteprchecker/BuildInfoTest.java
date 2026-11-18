@@ -44,11 +44,11 @@ class BuildInfoTest {
         assertThat(info.getProperty("build.dirty")).isEqualTo(String.valueOf(dirty));
     }
 
-    /** A release build is named by its tag (-Pappversion); any other by where it stands from the last tag. */
+    /** A build uses its release version or its distance from the last release tag, ignoring Deploy tags. */
     @Test
     void aBuildThatIsNoReleaseSaysWhereItStands() throws Exception {
         String version = buildInfo().getProperty("build.version");
-        String described = git("describe", "--tags", "--always").replaceFirst("^v", "");
+        String described = git("describe", "--tags", "--match", "v[0-9]*", "--always").replaceFirst("^v", "");
         boolean dirty = Boolean.parseBoolean(buildInfo().getProperty("build.dirty"));
 
         assertThat(version).satisfiesAnyOf(
