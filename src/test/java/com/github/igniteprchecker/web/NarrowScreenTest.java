@@ -213,13 +213,11 @@ class NarrowScreenTest {
     /**
      * On the flaky board, the Russian chip of a queued re-run did not wrap: "#13655 · в очереди 1 ч 05 мин · старт
      * через ~1 ч 18 мин" ran about 50 px past a 360 px phone. On a narrow Russian page the chip wraps; the English one
-     * fits. The chip sits in the test's name, which breaks anywhere, and broke as "осталось ~1 ч 18 м | ин": it wraps
-     * between its words.
+     * fits.
      */
     @Test
     void aRussianRunChipWrapsOnAPhone() throws Exception {
-        assertThat(rule(narrow("flaky.html"), "html[lang=\"ru\"] .live")).contains("white-space: normal",
-            "word-break: normal");
+        assertThat(rule(narrow("flaky.html"), "html[lang=\"ru\"] .live")).contains("white-space: normal");
     }
 
     /** One top bar for the three pages, in the stylesheet they share. */

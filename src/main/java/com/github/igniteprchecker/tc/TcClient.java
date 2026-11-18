@@ -522,6 +522,35 @@ public class TcClient {
     }
 
     /**
+     * The ids of the base branch's finished, not cancelled RunAll chains, newest first, up to
+     * {@code analysis.historyDepth}: one small call that tells which chains are new.
+     */
+    public List<Long> masterChains(String token) {
+        TcModel.BuildList chains = get("baseline", token, url("app/rest/builds", query(
+            "locator", "buildType:(id:" + analysis.runAllBuildType() + "),branch:(default:true),"
+                + "state:finished,canceled:false,count:" + analysis.historyDepth(),
+            "fields", "build(id)")), TcModel.BuildList.class);
+
+        return chains == null || chains.build() == null ? List.of()
+            : chains.build().stream().map(TcModel.Build::id).toList();
+    }
+
+    /**
+     * The suite runs of a RunAll chain, each with what tells whether it gave a test verdict: how and when it ended,
+     * how many of its tests ran and failed, and the types of its problems. One call for all ~150 suites. A suite's run
+     * is the same build in several chains when TeamCity reused it.
+     */
+    public List<TcModel.Build> chainSuiteRuns(String token, long chainId) {
+        TcModel.Build chain = get("baseline", token, url("app/rest/builds/id:" + chainId, query(
+            "fields", "snapshot-dependencies(build(id,buildTypeId,state,status,finishDate,buildType(name),"
+                + "testOccurrences(count,failed),problemOccurrences(problemOccurrence(type))))")),
+            TcModel.Build.class);
+
+        return chain == null || chain.snapshotDependencies() == null || chain.snapshotDependencies().build() == null
+            ? List.of() : chain.snapshotDependencies().build();
+    }
+
+    /**
      * Failed test occurrences of a single build, muted ones left out. TeamCity does not fail a build on a
      * muted test and someone muted it on purpose, so it is never a PR's blocker; skipping it here, in
      * every suite, keeps a build's list equal to the failed count TeamCity shows for that build. Counting
@@ -730,11 +759,12 @@ public class TcClient {
     }
 
     /**
-     * Up to 50 recent master occurrences in one suite, with completed pass/fail results and their build finish dates.
-     * The board derives both its timeline and failure links from this window. A {@code status:FAILURE} locator only
-     * scans a shallow occurrence window, so it misses sparse failures that this unfiltered query does see.
+     * Up to {@code analysis.historyDepth} recent master occurrences in one suite, with completed pass/fail results,
+     * their build finish dates and the commit each build ran on. The board derives both its timeline and failure links
+     * from this window. A {@code status:FAILURE} locator only scans a shallow occurrence window, so it misses sparse
+     * failures that this unfiltered query does see.
      *
-     * <p>Per suite, as {@link #getBaseBranchHistory}: the flaky board links them next to that suite's
+     * <p>Per suite, as {@link #getBaseBranchHistory}: the board links them next to that suite's
      * fail rate, and a failure of the same test id on another platform is not a failure of this one.
      *
      * <p>Whether the test is muted now comes in the same request: a test muted for years still fails every
@@ -742,26 +772,33 @@ public class TcClient {
      */
     public MasterHistory masterTestHistory(String token, long testId, String buildTypeId) {
         TcModel.MasterOccurrences occ = get("masterFail", token, url("app/rest/testOccurrences", query(
-            "locator", "test:(id:" + testId + "),branch:(default:true),buildType:(id:" + buildTypeId + "),count:50",
-            "fields", "testOccurrence(id,status,currentlyMuted,build(id,buildTypeId,state,status,finishDate))")),
+            "locator", "test:(id:" + testId + "),branch:(default:true),buildType:(id:" + buildTypeId + "),count:"
+                + analysis.historyDepth(),
+            "fields", "testOccurrence(id,status,currentlyMuted,build(id,buildTypeId,state,status,finishDate,"
+                + "revisions(revision(version))))")),
             TcModel.MasterOccurrences.class);
 
         if (occ == null || occ.testOccurrence() == null)
-            return new MasterHistory(List.of(), false);
+            return new MasterHistory(List.of(), false, false);
 
         List<TcModel.MasterOccurrence> runs = occ.testOccurrence().stream()
             .filter(o -> ("SUCCESS".equals(o.status()) || "FAILURE".equals(o.status())) && o.build() != null
                 && buildTypeId.equals(o.build().buildTypeId()) && "finished".equals(o.build().state())
                 && ("SUCCESS".equals(o.build().status()) || "FAILURE".equals(o.build().status())))
-            .limit(50)
+            .limit(analysis.historyDepth())
             .toList();
 
         return new MasterHistory(runs,
-            occ.testOccurrence().stream().anyMatch(o -> Boolean.TRUE.equals(o.currentlyMuted())));
+            occ.testOccurrence().stream().anyMatch(o -> Boolean.TRUE.equals(o.currentlyMuted())),
+            occ.testOccurrence().size() < analysis.historyDepth());
     }
 
-    /** Up to 50 completed, non-cancelled master runs in one suite, and whether the test is muted now. */
-    public record MasterHistory(List<TcModel.MasterOccurrence> runs, boolean muted) {
+    /**
+     * Up to {@code analysis.historyDepth} completed, non-cancelled master runs in one suite, and whether the test is
+     * muted now. {@code whole}: TeamCity has no older run of the test in the suite, so fewer runs than the depth mean
+     * a new test, not runs left out as cancelled.
+     */
+    public record MasterHistory(List<TcModel.MasterOccurrence> runs, boolean muted, boolean whole) {
     }
 
     /**

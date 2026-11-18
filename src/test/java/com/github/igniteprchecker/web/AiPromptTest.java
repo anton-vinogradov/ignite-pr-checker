@@ -429,20 +429,16 @@ class AiPromptTest {
 
     @Test
     void flakyBoardUsesTheConfiguredRepositoryAndFencesTheOutput() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", """
-            const copied = [];
-            page.run('navigator').clipboard.writeText = async text => { copied.push(text); };
+        JsonNode out = PageScript.run("flaky.html", PageScript.MASTER_BOARD + """
             page.route('/api/config', { body: { teamcityUrl: 'https://ci2.example/', githubRepo: 'example/ignite-fork' } });
-            page.route('/api/top-flaky', { body: { tests: [] } });
-            page.route('/api/reruns', { body: [] });
             page.route('/api/test-details', { body: { kind: '', details: 'boom ' + '`'.repeat(3) } });
-            await page.load('');
-            await page.run('aiFlakyPrompt')(page.el('ai'), { name: 'org.apache.ignite.FooTest.testBar',
-                suite: 'IgniteTests24Java8_Cache', suiteName: 'Cache', occurrenceId: 'occ-1', masterFails: 3,
-                masterRuns: 50, prCount: 2, masterFailures: [{ btId: 'IgniteTests24Java8_Cache', buildId: 7 }] });
-            await page.run('aiFlakyPrompt')(page.el('ai'), { name: 'Apache.Ignite.Core.Tests.DotNetCore: Apache.Ignite.'
+            const dotnet = test(106, '', 'PPPF', { name: 'Apache.Ignite.Core.Tests.DotNetCore: Apache.Ignite.'
                 + 'Core.Tests.Cache.CacheTest.TestPutAll', suite: 'IgniteTests24Java8_PlatformNetCoreLinux',
-                suiteName: 'Platform .NET (Core Linux)', occurrenceId: 'occ-2', masterFails: 2, masterRuns: 50, prCount: 1 });
+                suiteName: 'Platform .NET (Core Linux)' });
+            board([rebalance, dotnet]);
+            await page.load('');
+            await press({ ai: key(rebalance) });
+            await press({ ai: key(dotnet) });
             report({ prompt: copied[0], dotnet: copied[1] });
             """);
 
@@ -456,5 +452,19 @@ class AiPromptTest {
             .contains("Failure output:\n````\nboom ```\n````")
             .doesNotContain("apache/ignite");
         assertThat(out.get("dotnet").asText()).startsWith("Stabilise a flaky test in Apache Ignite (.NET, C#)");
+    }
+
+    /** A row's fail rate is that of its checked history, not of the runs the PR analyses saw: its prompt says the same. */
+    @Test
+    void theBoardsPromptNamesTheFailRateOfItsRow() throws Exception {
+        JsonNode out = PageScript.run("flaky.html", PageScript.MASTER_BOARD + """
+            const seenLongAgo = test(107, 'CacheTest.testSeenLongAgo', 'PPPF', { masterFails: 1, masterRuns: 50 });
+            board([seenLongAgo]);
+            await page.load('');
+            await press({ ai: key(seenLongAgo) });
+            report({ prompt: copied[0] });
+            """);
+
+        assertThat(out.get("prompt").asText()).contains("- Master fail rate: 1/4 recent runs (25%)");
     }
 }

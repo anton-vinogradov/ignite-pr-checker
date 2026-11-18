@@ -3,6 +3,7 @@ package com.github.igniteprchecker.analysis;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.CancelledSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
+import com.github.igniteprchecker.analysis.model.ProblemKind;
 import com.github.igniteprchecker.analysis.model.RunRef;
 import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.analysis.model.Upstream;
@@ -335,9 +336,7 @@ public class ChainCollector {
 
     private static SuiteResult masterDependencyResult(TcModel.Build build, Map<String, Integer> masterCounts) {
         String name = build.buildType() == null ? build.buildTypeId() : build.buildType().name();
-        List<TcModel.ProblemOccurrence> problems = build.problemOccurrences() == null
-            || build.problemOccurrences().problemOccurrence() == null ? List.of()
-                : build.problemOccurrences().problemOccurrence();
+        List<TcModel.ProblemOccurrence> problems = problemsOf(build);
         if (problems.isEmpty())
             problems = List.of(new TcModel.ProblemOccurrence(null, "Ignite master dependency failed"));
 
@@ -520,7 +519,7 @@ public class ChainCollector {
 
     /** Problems meaning the suite hung or died mid-run, so its per-test failures are unreliable
      * (timeout/hang cascades, tests that never got to run) — surface the suite, not the noise. */
-    private static final Set<String> UNSTABLE_PROBLEMS = Set.of("TC_EXECUTION_TIMEOUT", "TC_OOME", "TC_JVM_CRASH");
+    private static final Set<ProblemKind> UNSTABLE_PROBLEMS = Set.of(ProblemKind.TIMEOUT, ProblemKind.CRASH);
 
     /** TeamCity's problem about a run with fewer tests than one it chose to compare with. */
     private static final Pattern TESTS_COUNT_PROBLEM =
@@ -536,14 +535,39 @@ public class ChainCollector {
             && 100.0 * (master - run.testOccurrences().count()) / master < SHRINK_PCT;
     }
 
+    /** A suite run's problems, as TeamCity listed them. */
+    static List<TcModel.ProblemOccurrence> problemsOf(TcModel.Build run) {
+        return run.problemOccurrences() != null && run.problemOccurrences().problemOccurrence() != null
+            ? run.problemOccurrences().problemOccurrence() : List.of();
+    }
+
+    /** Whether a finished suite run hung or died mid-run. */
+    private static boolean unstable(TcModel.Build run) {
+        return "finished".equalsIgnoreCase(run.state())
+            && problemsOf(run).stream().anyMatch(p -> UNSTABLE_PROBLEMS.contains(ProblemKind.of(p.type())));
+    }
+
+    /** Whether a suite run hung or died before it got through the {@code master} tests its suite runs on master. */
+    private static boolean cutShort(TcModel.Build run, Integer master) {
+        return unstable(run) && !ranInFull(run, master);
+    }
+
+    /**
+     * Whether a failed suite run gave no test verdict, which makes its suite a broken one, on a PR's branch and on
+     * master alike: it was cut short, or it finished with none of its tests failed, muted ones left out. A run still
+     * going has no final story.
+     */
+    static boolean broken(TcModel.Build run, Integer master, int failedTests) {
+        return "finished".equalsIgnoreCase(run.state()) && (cutShort(run, master) || failedTests == 0);
+    }
+
     private SuiteResult suiteResultOf(String token, TcModel.Build dep, Map<String, Integer> masterCounts) {
         String suiteName = dep.buildType() != null && dep.buildType().name() != null
             ? dep.buildType().name()
             : dep.buildTypeId();
 
-        List<TcModel.ProblemOccurrence> problems = dep.problemOccurrences() != null
-            && dep.problemOccurrences().problemOccurrence() != null
-            ? dep.problemOccurrences().problemOccurrence() : List.of();
+        List<TcModel.ProblemOccurrence> problems = problemsOf(dep);
+        Integer master = masterCounts.get(dep.buildTypeId());
 
         // A suite that timed out / ran out of memory / crashed usually didn't finish: its failed tests are
         // likely cascade noise and some tests never ran. Show it as a broken suite, don't mine it for
@@ -554,9 +578,7 @@ public class ChainCollector {
         // A suite still running has failures worth showing but no final story: its tests are collected,
         // and it is never called broken — "failed without running tests" would be a lie about a suite
         // that simply hasn't got there yet.
-        boolean finished = "finished".equalsIgnoreCase(dep.state());
-        boolean unstable = finished && problems.stream().anyMatch(p -> UNSTABLE_PROBLEMS.contains(p.type()));
-        if (unstable && !ranInFull(dep, masterCounts.get(dep.buildTypeId())))
+        if (cutShort(dep, master))
             return new SuiteResult(dep, List.of(), brokenSuite(dep, suiteName, problems, masterCounts), null);
 
         List<FailedTest> tests = facts.failedTests(dep, () -> tc.getFailedTests(token, dep.id())).stream()
@@ -566,10 +588,11 @@ public class ChainCollector {
 
         // A suite whose only failures are muted is broken too: muted failures don't turn a suite red, so its
         // problems name what did.
-        if (tests.isEmpty() && finished)
+        if (broken(dep, master, tests.size()))
             return new SuiteResult(dep, List.of(), brokenSuite(dep, suiteName, problems, masterCounts), null);
 
-        return new SuiteResult(dep, tests, null, unstable ? brokenSuite(dep, suiteName, problems, masterCounts) : null);
+        return new SuiteResult(dep, tests, null,
+            unstable(dep) ? brokenSuite(dep, suiteName, problems, masterCounts) : null);
     }
 
     private static BrokenSuite brokenSuite(TcModel.Build dep, String suiteName, List<TcModel.ProblemOccurrence> problems,
@@ -602,17 +625,13 @@ public class ChainCollector {
     /** Human wording for a TeamCity problem type, falling back to its details/raw type. */
     private static String describeProblem(TcModel.ProblemOccurrence p) {
         String type = p.type() == null ? "" : p.type();
+        ProblemKind kind = ProblemKind.of(type);
+        if (kind != ProblemKind.OTHER)
+            return kind.said();
 
-        return switch (type) {
-            case "TC_COMPILATION_ERROR" -> "compilation error";
-            case "TC_EXECUTION_TIMEOUT" -> "execution timeout";
-            case "TC_EXIT_CODE" -> "non-zero exit code";
-            case "TC_OOME", "TC_JVM_CRASH" -> "JVM crash / out of memory";
-            case "SNAPSHOT_DEPENDENCY_ERROR", "SNAPSHOT_DEPENDENCY_ERROR_BUILD_PROCEEDS_TYPE" -> "failed dependency";
-            default -> p.details() != null && !p.details().isBlank()
-                ? p.details().strip().split("\n")[0]
-                : (type.isBlank() ? "unknown problem" : type);
-        };
+        return p.details() != null && !p.details().isBlank()
+            ? p.details().strip().split("\n")[0]
+            : (type.isBlank() ? "unknown problem" : type);
     }
 
     /**

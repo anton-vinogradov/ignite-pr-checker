@@ -615,6 +615,56 @@ public class GithubClient implements SnapshotCache {
         public static final Changes NONE = new Changes(java.util.Map.of(), false, true);
     }
 
+    /**
+     * The commits {@code head} has on top of {@code base}: how many there are, and the newest {@code max} of them.
+     * Empty when GitHub lists no such commits: it does not know one of the two, {@code head} is not ahead of
+     * {@code base} (a rewritten branch, an older commit), or there are more than a comparison lists, which names the
+     * oldest of them only.
+     */
+    public Optional<Commits> commitsBetween(String base, String head, int max) {
+        Compared cmp;
+        try {
+            cmp = recorded("compare", () -> appGet(
+                props.apiUrl() + "/repos/" + props.repo() + "/compare/" + base + "..." + head).body(Compared.class));
+        }
+        catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
+            return Optional.empty();
+        }
+        if (cmp == null)
+            throw new IllegalStateException("GitHub sent no comparison of " + base + " and " + head);
+
+        List<Compared.Listed> listed = cmp.commits() == null ? List.of() : cmp.commits();
+        if (!"ahead".equals(cmp.status()) || listed.size() < cmp.totalCommits())
+            return Optional.empty();
+
+        List<Commit> newest = new java.util.ArrayList<>();
+        for (int i = listed.size() - 1; i >= 0 && newest.size() < max; i--) {
+            Compared.Listed c = listed.get(i);
+            newest.add(new Commit(c.sha(), c.commit().message().lines().findFirst().orElse("")));
+        }
+
+        return Optional.of(new Commits(cmp.totalCommits(), List.copyOf(newest)));
+    }
+
+    /** The commits between two others: {@code total} of them, the newest of which are {@code commits}, newest first. */
+    public record Commits(int total, List<Commit> commits) {
+    }
+
+    /** A commit: its sha and the first line of its message. */
+    public record Commit(String sha, String title) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Compared(String status, @JsonProperty("total_commits") int totalCommits, List<Listed> commits) {
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private record Listed(String sha, Detail commit) {
+        }
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private record Detail(String message) {
+        }
+    }
+
     /** Paths of the PR's changed (not removed) .java files, capped at 300. */
     public java.util.List<String> prJavaFiles(int prNumber) {
         java.util.List<String> out = new java.util.ArrayList<>();

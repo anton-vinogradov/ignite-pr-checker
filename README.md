@@ -59,8 +59,8 @@ each label means and what to do about it.
   **Extensions: All Tests** build chain for `apache/ignite-extensions`, with its PR head and Ignite master.
   Open `/extensions?pr=42` for its suite results, whole-chain re-runs and final verdict comment. See
   [Extensions PRs](docs/features.md#extensions-prs).
-- **The flaky board** at `/flaky.html`: tests that fail on master, flaky ones first, then the ones that broke. See
-  [The flaky board](docs/features.md#the-flaky-board-flakyhtml).
+- **The master board** at `/flaky.html`: tests that fail on master, the newly broken ones first, then the suites
+  whose master runs end without a test verdict, the flaky tests and those that always fail. See [The master board](docs/features.md#the-master-board-flakyhtml).
 - **The status page**: health, memory, the warmer, TeamCity, GitHub and JIRA calls, the settings in effect. Live:
   <https://ignite-pr-checker.is-a.dev/status.html>.
 
@@ -471,7 +471,7 @@ each boot, or the tokens can stay in the swap file.
 | `users.json` | Who used the service and when, when each user last ended all their other logins, and the language each chose for the pages. The server refuses session cookies that an earlier version of the checker issued before that moment. Names only, no tokens. |
 | `logins.json` | Each user's logins: the browser and its system, when it logged in and when it was last seen. No tokens and no IP addresses. If the file loses a browser's login, that browser goes to the login form. |
 | `journal.json` | Each user's journal in ⚙: each change of their settings and the browser it came from, each token a service refused or the checker could not read, each visa posted or edited with their JIRA token. The last 100 switches of options, the last 100 saved tokens and the last 100 other entries of each user. No tokens. |
-| `analysis.json`, `flaky.json`, `suite-baseline.json`, `delta.json`, `github.json`, `metrics.json` | Caches: verdicts and what TeamCity said, the flaky board, master's test counts, run-to-run deltas, the open PRs, the status page's counters. Without them the service starts slower. |
+| `analysis.json`, `flaky.json`, `master-suites.json`, `suite-baseline.json`, `delta.json`, `github.json`, `metrics.json` | Caches: verdicts and what TeamCity said, the master board's tests and its suites, master's test counts, run-to-run deltas, the open PRs, the status page's counters. Without them the service starts slower. |
 | `merged/<pr>.json` | The verdict of a merged PR as it stood at the merge. When runs queued before the merge ended after that verdict was computed, it holds their results too. Written when the checker finds the PR merged, and once more when it has looked at those runs. Never removed. |
 | `backups/cache-YYYY-MM-DD.zip` | All snapshot files, zipped once a day, the newest 7 kept. `merged/` is not in them. |
 | `<file>.bad-<time>` | A file that could not be read at the start, set aside; that part started empty. |
@@ -576,7 +576,7 @@ One Spring Boot application; the packages under `com.github.igniteprchecker`:
 | Package | What it does |
 |---|---|
 | `tc` | The TeamCity REST client, and `RerunTracker`, which follows queued and running builds. What a user does goes under their own token; background reads borrow other users' tokens and only read with them. |
-| `analysis` | The verdict: `ChainCollector` walks the RunAll chain, `BlockerAnalyzer` judges each failure, plus caveats, root causes, the flaky board, merged PRs' verdicts, and the warmer with its token pool. |
+| `analysis` | The verdict: `ChainCollector` walks the RunAll chain, `BlockerAnalyzer` judges each failure, plus caveats, root causes, the master board, merged PRs' verdicts, and the warmer with its token pool. |
 | `jira` | Verdict texts (`VisaService`), and the standing options that settle runs with re-runs, comments and visas (`StandingVisas`). |
 | `github` | The GitHub client (PR list, comments, reactions, commits) and the PR command poll (`PrCommands`). |
 | `style` | The checkstyle autofix of the author's own PR. |

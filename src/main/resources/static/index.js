@@ -216,43 +216,6 @@ function isOpen(number, repo) { return number === selectedPr && (repo ?? null) =
 
 // "#13575", or "python#69" for a PR of the Python thin client, as the filter takes it.
 function prTag(number, repo) { return (repo ? repo : '') + '#' + number; }
-function ago(ts) {
-    if (!ts) return T('just now');
-    const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
-    if (s < 10) return T('just now');
-    if (s < 60) return T`${s}s ago`;
-    const m = Math.round(s / 60);
-    if (m < 60) return T`${m}m ago`;
-    const h = Math.round(m / 60);
-    return h < 48 ? T`${h}h ago` : T`${Math.round(h / 24)}d ago`;
-}
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-// "15 Sep 21:05" in the viewer's time zone; the year only when it is not this one. In Russian "15 сентября в 21:05".
-function fmtDay(ms) {
-    return LANG === 'ru' ? fmtDayAt(ms) : `${fmtDate(ms)} ${clockOf(ms)}`;
-}
-
-// "15 Sep at 21:05": a moment named in a sentence.
-function fmtDayAt(ms) {
-    return T`${fmtDate(ms)} at ${clockOf(ms)}`;
-}
-
-// "15 Sep", or "15 Sep 2025" in another year; in Russian "15 сентября", "15 сентября 2025 г.".
-function fmtDate(ms) {
-    const d = new Date(ms);
-    const otherYear = d.getFullYear() !== new Date(Date.now()).getFullYear();
-    if (LANG === 'ru')
-        return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', ...(otherYear ? { year: 'numeric' } : {}) });
-    return `${d.getDate()} ${MONTHS[d.getMonth()]}${otherYear ? ' ' + d.getFullYear() : ''}`;
-}
-
-// "21:05".
-function clockOf(ms) {
-    const d = new Date(ms);
-    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-}
 
 let shownTitle = null; // what setPrTitle last drew, to redraw once /api/config names the hosts
 let shownPrState = ''; // the Merged or Closed tag setPrTitle last drew beside the number

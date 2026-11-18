@@ -18,7 +18,7 @@ import tools.jackson.databind.JsonNode;
 /**
  * Each page had its own top bar: the PR page offered Flaky tests and Status as pills, the flaky board Status and
  * "← App", the status page "← App" alone, each with a subtitle of its own; navigation, Log out, the theme selector
- * and the update buttons all looked like the same pill. Now every page carries the same menu, PRs · Flaky tests ·
+ * and the update buttons all looked like the same pill. Now every page carries the same menu, PRs · Master ·
  * Status, with the current page marked; Log out stands as a link beside the name; and only the update buttons are
  * accented.
  */
@@ -52,7 +52,7 @@ class TopBarPageTest {
                 current = href.group(1);
             }
         }
-        assertThat(items).containsExactly("/ignite PRs", "/flaky.html Flaky tests", "/status.html Status");
+        assertThat(items).containsExactly("/ignite PRs", "/flaky.html Master", "/status.html Status");
         assertThat(current).isEqualTo(page.equals("index.html") ? "/ignite" : "/" + page);
         assertThat(html).doesNotContain("← App", "status-link", "class=\"pill");
         assertThat(html).contains("<button id=\"reloadPill\" class=\"update-btn hidden\"", "class=\"star-btn\"",

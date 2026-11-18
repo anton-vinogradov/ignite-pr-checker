@@ -33,6 +33,8 @@ class TcClientTest {
 
     private final List<String> buildFields = new CopyOnWriteArrayList<>();
 
+    private final List<String> buildLocators = new CopyOnWriteArrayList<>();
+
     private HttpServer server;
 
     @BeforeEach
@@ -49,6 +51,7 @@ class TcClientTest {
         });
         server.createContext("/app/rest/builds", ex -> {
             buildFields.add(param(ex.getRequestURI().getRawQuery(), "fields"));
+            buildLocators.add(param(ex.getRequestURI().getRawQuery(), "locator"));
             byte[] body = "{\"id\":9384769}".getBytes(UTF_8);
             ex.getResponseHeaders().add("Content-Type", "application/json");
             ex.sendResponseHeaders(200, body.length);
@@ -90,15 +93,18 @@ class TcClientTest {
             .doesNotContain("pull/");
     }
 
-    /** Given a test in one suite, when its board history is fetched, then the request includes that suite and finish dates. */
+    /**
+     * Given a test in one suite, when its board history is fetched, then the one request names that suite, as many runs
+     * as the analysis looks at, and each run's finish date and commit.
+     */
     @Test
-    void masterBoardHistoryNamesTheSuiteAndFinishDates() {
+    void masterBoardHistoryNamesTheSuiteFinishDatesAndCommits() {
         client().masterTestHistory("tok", RECONNECT, CLANG);
 
         assertThat(locators).singleElement().asString()
-            .contains("test:(id:" + RECONNECT + ")", "branch:(default:true)", "buildType:(id:" + CLANG + ")", "count:50");
+            .contains("test:(id:" + RECONNECT + ")", "branch:(default:true)", "buildType:(id:" + CLANG + ")", "count:100");
         assertThat(occurrenceFields).singleElement().asString()
-            .contains("currentlyMuted", "build(id,buildTypeId,state,status,finishDate)");
+            .contains("currentlyMuted", "build(id,buildTypeId,state,status,finishDate,revisions(revision(version)))");
     }
 
     /**
@@ -112,6 +118,22 @@ class TcClientTest {
         assertThat(buildFields).singleElement().asString()
             .contains("snapshot-dependencies(build(id,buildTypeId,status,state,queuedDate,")
             .contains(",snapshot-dependencies(build(id,buildTypeId,status,buildType(name)))))");
+    }
+
+    /**
+     * The master board learns which of master's RunAll chains are new from their ids alone, as many chains as the
+     * analysis looks at runs, and reads the suite runs of a chain in one request: how each ended and when, how many of
+     * its tests ran and failed, and the types of its problems.
+     */
+    @Test
+    void masterChainsAreListedByIdAndReadWithWhatTellsAProblemRun() {
+        client().masterChains("tok");
+        client().chainSuiteRuns("tok", 9384769L);
+
+        assertThat(buildLocators).first().asString()
+            .isEqualTo("buildType:(id:RunAll),branch:(default:true),state:finished,canceled:false,count:100");
+        assertThat(buildFields).containsExactly("build(id)", "snapshot-dependencies(build(id,buildTypeId,state,status,"
+            + "finishDate,buildType(name),testOccurrences(count,failed),problemOccurrences(problemOccurrence(type))))");
     }
 
     private TcClient client() {

@@ -25,7 +25,8 @@ const FOCUSABLE = ['a', 'button', 'input', 'select', 'summary', 'textarea'];
 
 // Boxes that carry no text: bars, dots and strips painted with a colour that no letter sits on.
 const NO_TEXT = ['.trend a', '.trend a.clean', '.run-p', '.run-f', '.run-old', '.catfill', '.catbar', '.hdot', '.hdot.ok',
-    '.hdot.warn', '.hdot.error', '.dot', '.resizer', '.resizer.dragging', '.star-ico'];
+    '.hdot.warn', '.hdot.error', '.dot', '.resizer', '.resizer.dragging', '.star-ico', '.strip i', '.strip i.f',
+    '.strip i.h', '.strip i.f.h', '.legend i', '.legend .lp', '.legend .lf'];
 
 // A class-only selector says nothing about the tag; these classes are always on a button or a link, whose own rules
 // (the neutral fill, the accent) then take part.
@@ -39,12 +40,14 @@ const TAG_OF = { button: ['act', 'why', 'suite-rerun', 'mini-btn', 'linklike', '
 const INSIDE = {
     '.pr-list li.sel, .pr-list li:hover': ['.pr-link', '.pr-open-any', '.pr-num', '.pr-key', '.pr-ttl', '.pr-badge', '.pr-short', '.pr-by'],
     '.login-pr': ['p', '.muted', 'a'],
-    '.details': ['pre', '.copy'],
+    '.details': ['pre', '.copy', 'p', '.muted', 'a', '.why'],
     '.jira-panel': ['.muted', 'a'],
     '.pane-head': ['a.help', '.pr-legend'],
     '.card': ['.muted', 'a', '.reason', '.reason-head', '.tag-doubt', '.tag-flaky', '.live'],
     'ul.suite-tests > li.test-row:hover': ['.tname', '.tacts', '.reason', '.tag-doubt', '.tag-flaky', 'a.ext', '.why'],
-    '.section': ['.catname', '.muted', 'a', '.flake', '.lbsuite', '.lbrank', '.lbcol', '.group-sub', '.details p'],
+    '.section': ['.catname', '.muted', 'a', '.count', '.sub', '.empty', '.cols', '.name', '.num', '.rate', '.rise',
+        '.strip-note', '.caret', '.why'],
+    '.row:hover, .row.open': ['.name', '.num', '.rate', '.rise', '.strip-note', '.caret', '.muted'],
 };
 
 // What browsers draw a placeholder with when no rule says: Chrome a grey of its own, Firefox the input's own colour,

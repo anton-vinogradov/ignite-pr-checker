@@ -11,6 +11,7 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
+import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.tc.TcClient;
 import com.sun.net.httpserver.HttpServer;
@@ -93,8 +94,8 @@ class FlakyStatsTest {
         flaky.harvest();
 
         assertThat(flaky.top(40)).singleElement()
-            .extracting(FlakyStats.TopFlaky::masterFailures)
-            .isEqualTo(List.of(ref(9380300L, LINUX)));
+            .extracting(t -> t.history().builds(), t -> t.history().occ())
+            .containsExactly(List.of(9380300L), List.of(FakeTeamCity.occurrenceId(9380300L)));
     }
 
     @Test
@@ -138,14 +139,14 @@ class FlakyStatsTest {
 
         assertThat(flaky.top(40)).singleElement()
             .extracting(FlakyStats.TopFlaky::suite, FlakyStats.TopFlaky::masterFails, FlakyStats.TopFlaky::masterRuns,
-                t -> t.masterFailures().stream().map(FlakyStats.MasterRef::buildId).toList())
+                t -> t.history().builds())
             .containsExactly(LINUX, 1, 34, List.of(9380300L));
 
         flaky.harvest();
 
         assertThat(flaky.top(40)).singleElement()
-            .extracting(t -> t.masterFailures().stream().map(FlakyStats.MasterRef::buildId).toList())
-            .isEqualTo(List.of(9380302L, 9380300L));
+            .extracting(t -> t.history().builds())
+            .isEqualTo(List.of(9380300L, 9380302L));
     }
 
     /** One failed master run proves neither flakiness nor breakage: such a test led the flaky group at 100%. */
@@ -165,7 +166,7 @@ class FlakyStatsTest {
     private FlakyStats flaky() {
         when(warmer.borrowToken()).thenReturn("tok");
 
-        return new FlakyStats(cache, mapper, tc, warmer);
+        return new FlakyStats(cache, mapper, tc, warmer, mock(GithubClient.class));
     }
 
     private void masterHistory(String suite, int runs, int fails) {
