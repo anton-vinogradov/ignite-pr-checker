@@ -303,8 +303,8 @@ Deploy versions shown on **Status** have the form `2.0.0-deploy.<number>`, for e
 The number identifies a Deploy workflow run: a new run gets a new number, while a retry keeps it.
 The GitHub prerelease title comes from the merged PR that introduced the checked commit. Without a matching PR,
 it uses the push commit's subject, or `Deploy <SHA>` for a manual run.
-The PR's **Production deploy** check shows the version once GitHub publishes the JAR. It marks the deploy successful
-after the server confirms it started that version and commit.
+After GitHub publishes the JAR, the merged PR gets a **Ready to deploy** comment with the version and a link to
+the run. GitHub updates that same comment and the **Production deploy** check when the server reports the result.
 
 The **GitHub deployment** card on **Status** shows the current step and the last successful deployment.
 After a restart, the server checks that the new JAR answers with the expected version and commit. If it fails, the

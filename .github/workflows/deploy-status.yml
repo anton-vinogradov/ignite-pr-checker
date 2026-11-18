@@ -8,7 +8,7 @@ on:
 
 permissions:
   actions: read
-  pull-requests: read
+  pull-requests: write
   statuses: write
 
 concurrency:
@@ -42,6 +42,7 @@ jobs:
           REPO = "anton-vinogradov/ignite-pr-checker"
           STATUS_URL = "https://ignite-pr-checker.is-a.dev/api/status"
           CONTEXT = "Production deploy"
+          COMMENT_MARKER = "<!-- ignite-pr-checker:production-deploy -->"
           TRANSIENT = {"download-failed", "service-unavailable"}
 
           class NoRedirect(HTTPRedirectHandler):
@@ -50,7 +51,7 @@ jobs:
 
           transport = build_opener(NoRedirect)
 
-          def request_json(url, body=None, token=None):
+          def request_json(url, body=None, token=None, method=None):
               headers = {"Accept": "application/json", "User-Agent": "ignite-pr-checker-deploy-status"}
               if token:
                   headers["Authorization"] = "Bearer " + token
@@ -58,15 +59,15 @@ jobs:
               data = None if body is None else json.dumps(body).encode()
               if data is not None:
                   headers["Content-Type"] = "application/json"
-              with transport.open(Request(url, data=data, headers=headers), timeout=20) as response:
+              with transport.open(Request(url, data=data, headers=headers, method=method), timeout=20) as response:
                   raw = response.read(2 * 1024 * 1024 + 1)
               if len(raw) > 2 * 1024 * 1024:
                   raise ValueError("response is too large")
               return json.loads(raw)
 
-          def api(path, body=None):
+          def api(path, body=None, method=None):
               return request_json("https://api.github.com/repos/" + REPO + "/" + path,
-                                  body, os.environ["GH_TOKEN"])
+                                  body, os.environ["GH_TOKEN"], method)
 
           def run_order(run):
               values = run.get("run_number"), run.get("run_attempt")
@@ -108,9 +109,56 @@ jobs:
                      and pr.get("base", {}).get("repo", {}).get("full_name") == REPO]
           if len(matches) != 1:
               raise SystemExit("No unique merged PR for this commit; no PR status was written.")
+          pr_number = matches[0]["number"]
+          if type(pr_number) is not int or pr_number <= 0:
+              raise ValueError("invalid merged PR number")
           head = matches[0]["head"]["sha"]
           if not re.fullmatch(r"[0-9a-f]{40}", head):
               raise ValueError("invalid PR head commit")
+          comment_id = None
+
+          def update_comment(state, detail):
+              global comment_id
+              try:
+                  if comment_id is None:
+                      page = 1
+                      while True:
+                          comments = api(f"issues/{pr_number}/comments?per_page=100&page={page}")
+                          owned = next((item for item in comments
+                                        if item.get("user", {}).get("login") == "github-actions[bot]"
+                                        and (item.get("body") or "").startswith(COMMENT_MARKER + "\n")), None)
+                          if owned:
+                              comment_id = owned["id"]
+                              break
+                          if len(comments) < 100:
+                              break
+                          page += 1
+                  heading = {"pending": "Ready to deploy", "success": "Deployed", "failure": "Deployment failed",
+                             "error": "Deployment not confirmed"}[state]
+                  if state == "failure" and detail == "rolled back":
+                      heading = "Rolled back"
+                  message = {
+                      "pending": "The checked JAR is published. Waiting for the server to confirm deployment.",
+                      "success": "The server confirmed this version and commit.",
+                      "failure": "The server reported a deployment failure.",
+                      "error": detail[:1].upper() + detail[1:] + ".",
+                  }[state]
+                  if heading == "Rolled back":
+                      message = "The server restored the previous version."
+                  body = (f"{COMMENT_MARKER}\n**{heading} · `{version}`**\n\n{message}\n\n"
+                          f"[Deployment run]({target}) · "
+                          "[Production status](https://ignite-pr-checker.is-a.dev/status.html)")
+                  if comment_id is None:
+                      created = api(f"issues/{pr_number}/comments", {"body": body})
+                      comment_id = created["id"]
+                  else:
+                      if type(comment_id) is not int or comment_id <= 0:
+                          raise ValueError("invalid deployment comment ID")
+                      api(f"issues/comments/{comment_id}", {"body": body}, method="PATCH")
+                  print(f"Deployment comment {comment_id}: {heading}")
+              except Exception as error:
+                  comment_id = None
+                  print(f"::warning::Could not update the deployment comment ({type(error).__name__}).")
 
           def publish(state, detail):
               statuses = api(f"commits/{head}/statuses?per_page=100")
@@ -128,6 +176,7 @@ jobs:
               api(f"statuses/{head}", {"state": state, "context": CONTEXT, "target_url": target,
                                       "description": f"{version} (attempt {order[1]}): {detail}"[:140]})
               print(f"{version}: {state}: {detail}")
+              update_comment(state, detail)
               return True
 
           def outcome(status):
