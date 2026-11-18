@@ -200,6 +200,29 @@ public class MasterSuites implements SnapshotCache {
         return out;
     }
 
+    /**
+     * How a suite that a PR's run left broken, with problems of TeamCity's {@code types}, does on master: the same
+     * when its newest master run ended with a problem of the same kind, fine when every master run read reported its
+     * tests. Not known otherwise: no run of it is read yet, the verdict names no types, or master's runs end another
+     * way or only at times.
+     */
+    public synchronized OnMaster onMaster(String suite, List<String> types) {
+        Suite s = bySuite.get(suite);
+        if (s == null || s.runs.isEmpty() || types.isEmpty())
+            return OnMaster.UNKNOWN;
+        if (s.runs.stream().allMatch(run -> run.kind() == 'P'))
+            return OnMaster.FINE;
+
+        char kind = types.stream().map(ProblemKind::of).sorted().findFirst().orElseThrow().letter();
+
+        return s.runs.get(s.runs.size() - 1).kind() == kind ? OnMaster.SAME : OnMaster.UNKNOWN;
+    }
+
+    /** See {@link #onMaster}. */
+    public enum OnMaster {
+        SAME, FINE, UNKNOWN
+    }
+
     /** How many master chains the histories were read from; 0 until the first one is read. */
     public synchronized int chainsRead() {
         return chains.size();

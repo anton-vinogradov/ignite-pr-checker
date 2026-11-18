@@ -443,6 +443,27 @@ class MasterSuitesTest {
     }
 
     /** A suite run that passed its 100 tests, finished at hour {@code hour}. */
+    /**
+     * A PR's verdict says of a suite its run left broken how the suite does on master: the same when its newest master
+     * run ended with a problem of that kind, fine when every master run read reported its tests. A suite that ends
+     * another way on master is neither, and nothing is known before a chain is read.
+     */
+    @Test
+    void aBrokenSuiteOfAPrIsToldHowItDoesOnMaster() {
+        ci.chain(101, ok(11, CACHE, 1), ok(12, PDS, 1));
+        ci.chain(102, ok(21, CACHE, 2), failed(22, PDS, 2, 300, 2, "TC_EXIT_CODE", "TC_EXECUTION_TIMEOUT"));
+        MasterSuites suites = suites(100);
+        List<String> timeout = List.of("TC_EXECUTION_TIMEOUT", "TC_EXIT_CODE");
+
+        assertThat(suites.onMaster(PDS, timeout)).isEqualTo(MasterSuites.OnMaster.UNKNOWN);
+        suites.scan();
+
+        assertThat(suites.onMaster(PDS, timeout)).isEqualTo(MasterSuites.OnMaster.SAME);
+        assertThat(suites.onMaster(PDS, List.of("TC_EXIT_CODE"))).isEqualTo(MasterSuites.OnMaster.UNKNOWN);
+        assertThat(suites.onMaster(CACHE, timeout)).isEqualTo(MasterSuites.OnMaster.FINE);
+        assertThat(suites.onMaster("Queries_1", timeout)).isEqualTo(MasterSuites.OnMaster.UNKNOWN);
+    }
+
     private ObjectNode ok(long build, String suite, int hour) {
         return run(build, suite, "SUCCESS", hour, 100, 0);
     }

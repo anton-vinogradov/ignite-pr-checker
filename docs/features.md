@@ -63,8 +63,8 @@ run where the test was ignored does not count as a run.
 
 ### Caveats
 
-The amber lines under the verdict heading, and the list under "This run doesn't cover the PR fully" in the comment
-and the visa.
+The amber lines under the verdict heading. The comment and the visa say the same in their first line and in the
+lists under it.
 
 | Caveat | What it means | What to do |
 |---|---|---|
@@ -605,8 +605,11 @@ log in from. The journal lists each change. A page that opens without a login is
   checker's account: at most 40 an hour to one PR and 60 for one user. The checker takes at most 5 presses on one PR
   in an hour. The rest of those 40 writes stay for the stories of the PR's runs and their verdict comments. When a
   limit is reached, the page says so; press again later.
-- A visa and a PR comment say the same. The head line names the RunAll build, the commit it tested, and how many
-  suites ran and how many were reused. Broken suites come grouped by cause.
+- A visa and a PR comment say the same. The first line is the verdict, with a link to the checker's page. Then come
+  the tests and the suites that gave no result, each suite with a link to its run. Suites whose newest master run
+  ended with the same kind of problem stand under **same as on master**: they say nothing of the PR. A suite whose
+  master runs all reported their tests is marked **fine on master**. More than 5 suites come grouped by cause. A
+  small line under them names the RunAll build and the commit it tested.
 - The lists of blockers, tests that recently started failing and unchecked tests are grouped by suite and class, the
   biggest group first.
   Each line has the test's tags (`1 run`, `new test / no master history`, `unverified`) and a TC link, and a line
@@ -614,10 +617,11 @@ log in from. The journal lists each change. A page that opens without a login is
 - Test names and the reasons TeamCity gives for a broken suite can have links, web addresses, mentions, images and
   HTML. The comment and the visa show all of it as written. `#123` and `GH-123` in them do not link to any GitHub
   issue or PR.
-- A verdict that can't call the PR clean lists the caveats. A verdict of code that was pushed over says which commit
-  it tested and which commit the PR is at now. A red PR comment ends with a **Next:** line: fix, push, and `/run-all`.
-- Every verdict carries a link to the [verdict glossary](#verdict-glossary) right under its lists; the lines about the
-  tested commit and the **Next:** line come after it.
+- A verdict of code that was pushed over opens with **Outdated**, and says which commit it tested and which commit
+  the PR is at now. Every verdict but a clean one has a **Next:** line that says what to do: fix the blockers, re-run
+  the suites it names, wait for a run, or nothing.
+- Every verdict links the [verdict glossary](#verdict-glossary) in the small line that names the run; the lines about
+  the tested commit and the automatic re-runs come after it.
 - The PR comment comes from the checker's account and opens with a mention of the run's starter when their GitHub
   login is proven, so GitHub tells them. When the PR title names no IGNITE ticket and the visa option is on, it says
   why no visa came.

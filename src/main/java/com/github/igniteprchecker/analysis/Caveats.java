@@ -82,7 +82,7 @@ public final class Caveats {
      * Control Utility 5 re-ran on 9b02561, the rest of the RunAll ran on c577b18; only a RunAll of the PR's head can
      * prove it clean". It stands for the caveat of commits pushed since: the reruns may have tested the PR's head.
      */
-    static String mixed(AnalysisResult r) {
+    public static String mixed(AnalysisResult r) {
         Map<String, List<String>> byCommit = new LinkedHashMap<>();
         for (RunRef run : r.otherCodeRuns())
             byCommit.computeIfAbsent(shortSha(run.revision()), c -> new ArrayList<>()).add(run.suiteName());
@@ -177,6 +177,11 @@ public final class Caveats {
         };
 
         return cause.length() > CAUSE_CHARS ? cause.substring(0, CAUSE_CHARS - 1) + "…" : cause;
+    }
+
+    /** How many suites an interrupted RunAll never ran, those a failed run kept from running aside. */
+    public static int neverRan(AnalysisResult r) {
+        return Gaps.of(r).neverRan();
     }
 
     /** The caveat of a run the PR's head has since moved past by {@code commits} commits. */

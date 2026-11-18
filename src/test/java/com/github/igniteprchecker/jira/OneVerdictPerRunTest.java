@@ -200,7 +200,7 @@ class OneVerdictPerRunTest {
 
         ArgumentCaptor<String> visa = ArgumentCaptor.forClass(String.class);
         verify(jira).addCommentWithId(eq("jira-pat"), eq(ISSUE), visa.capture());
-        assertThat(visa.getValue()).contains("mixed run — Control Utility 5 re-ran on 9b02561, the rest of the RunAll "
+        assertThat(visa.getValue()).contains("Mixed run — Control Utility 5 re-ran on 9b02561, the rest of the RunAll "
             + "ran on c577b18").contains("_The PR is now at {{9b02561}}._").doesNotContain("Tested commit");
         ArgumentCaptor<String> comment = ArgumentCaptor.forClass(String.class);
         verify(github).appComment(eq(PR), any(), comment.capture());

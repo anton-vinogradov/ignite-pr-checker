@@ -105,7 +105,7 @@ class CaveatsTest {
         String stale = visas.composeMarkdown(13434, covered(), 2);
 
         assertThat(clean).contains("✅ **No blockers**");
-        assertThat(unproven).doesNotContain("✅").contains("can't prove the PR is clean", "118 suites never ran");
+        assertThat(unproven).doesNotContain("✅").contains("No blockers found, 118 suites never ran");
         assertThat(stale).doesNotContain("✅").contains("2 commits pushed since this run");
     }
 }

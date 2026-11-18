@@ -32,7 +32,8 @@ class ReadableTestListTest {
         String md = visas.composeMarkdown(PR, result(blockers), null);
         String wiki = visas.compose(PR, result(blockers), null);
 
-        assertThat(md).contains("❌ **489 blockers in 1 suite:**\n- Queries 1 · `IgniteCacheReplicatedQuerySelfTest`"
+        assertThat(md).startsWith("❌ **489 blockers in 1 suite** · ")
+            .contains("\n\n- Queries 1 · `IgniteCacheReplicatedQuerySelfTest`"
                 + " — 489 tests: `test0`, `test1`, `test2` and 486 more · [TC](https://ci2.example/buildConfiguration/"
                 + "IgniteTests24Java8_Queries1/9500001?buildTab=tests)")
             .doesNotContain("org.apache.ignite", "IgniteQueryTestSuite", "479 more");
@@ -75,13 +76,13 @@ class ReadableTestListTest {
 
         String md = visas.composeMarkdown(PR, result(blockers), null);
 
-        assertThat(md).startsWith("**[Ignite PR Checker]")
+        assertThat(md).startsWith("❌ **8 blockers in 7 suites** · [full verdict](")
             .contains("- Cache 0 · `Test0` — 2 tests: `testIt`, `testOther`")
             .contains("- Cache 4 · `Test4.testIt`")
             .contains("<details><summary>2 more tests in 2 classes</summary>\n\n- Cache 5 · `Test5.testIt`")
             .contains("- Cache 6 · `Test6.testIt` — failed 3 of 3 runs of this code · [TC](https://ci2.example/"
                 + "buildConfiguration/IgniteTests24Java8_Cache6/9600006?buildTab=tests#testNameId6)\n\n</details>\n\n"
-                + "<sub>What each label means");
+                + "**Next:** fix the blockers");
         assertThat(md.indexOf("Cache 0")).isLessThan(md.indexOf("Cache 1"));
     }
 
@@ -95,7 +96,7 @@ class ReadableTestListTest {
 
         String md = visas.composeMarkdown(PR, result(blockers), null);
 
-        assertThat(md).contains(":**\n- Queries 1 · `IgniteCacheReplicatedQuerySelfTest` — 489 tests");
+        assertThat(md).contains("\n\n- Queries 1 · `IgniteCacheReplicatedQuerySelfTest` — 489 tests");
         assertThat(md.indexOf("Queries 1")).isLessThan(md.indexOf("<details>"));
     }
 
@@ -136,7 +137,8 @@ class ReadableTestListTest {
         String md = visas.composeMarkdown(PR, r, null);
 
         assertThat(md.length()).isLessThan(60_000);
-        assertThat(md).contains("❌ **239 blockers in 1 suite:**\n- Cache 3 · `GridCacheNearMultiNodeSelfTest0x0`"
+        assertThat(md).startsWith("❌ **239 blockers in 1 suite** · ")
+            .contains("\n\n- Cache 3 · `GridCacheNearMultiNodeSelfTest0x0`"
             + " — 4 tests")
             .contains("more tests in", "on [the checker's page](https://checker.example/ignite?pr=13583)");
     }

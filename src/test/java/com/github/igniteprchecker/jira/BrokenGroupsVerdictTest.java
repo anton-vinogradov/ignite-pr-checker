@@ -7,6 +7,8 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import java.util.List;
+import java.util.function.IntFunction;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -23,13 +25,17 @@ class BrokenGroupsVerdictTest {
     void aFailedBuildIsTheWholeVerdict() {
         String md = visas.composeMarkdown(BrokenRuns.PR_13583, BrokenRuns.buildFailed(false));
 
-        assertThat(md.substring(md.indexOf("\n\n") + 2)).isEqualTo("""
-            🛑 **Build failed — nothing else ran; fix the build, then /run-all**
+        assertThat(md).isEqualTo("""
+            🛑 **No verdict: Build failed** · [full verdict](https://ignite-pr-checker.is-a.dev/ignite?pr=13583)
+
             - Build: non-zero exit code
             - Did not run: Platform .NET (Core Linux), Thin client: Node.js, Thin client: PHP, Thin client: Python, \
             Platform .NET (Windows) and 140 more
 
-            <sub>What each label means and what to do: [verdict glossary](%s).</sub>""".formatted(VisaService.GLOSSARY));
+            **Next:** fix the build and run RunAll again.
+
+            <sub>RunAll [9384769](https://ci2.ignite.apache.org/build/9384769) · [glossary](%s)</sub>"""
+            .formatted(VisaService.GLOSSARY));
         assertThat(md).doesNotContain("- > Build", "compilation error, timeout, crash", "never ran", "No blockers");
     }
 
@@ -37,37 +43,34 @@ class BrokenGroupsVerdictTest {
     void theVisaStartsWithTheFailedBuildToo() {
         String wiki = visas.compose(BrokenRuns.PR_13583, BrokenRuns.buildFailed(true));
 
-        assertThat(wiki.substring(wiki.indexOf("\n\n") + 2))
-            .startsWith("(x) *Build failed — nothing else ran; fix the build, then /run-all*\n"
-                + "- Build: compilation error\n- Did not run: ");
+        assertThat(wiki).startsWith("(x) *No verdict: Build failed* — [Ignite PR Checker|https://ignite-pr-checker.is-a.dev/"
+            + "ignite?pr=13583] verdict for PR 13583\n\n- Build: compilation error\n- Did not run: ");
     }
 
     @Test
     void aBuildThatPassedOnARerunLeavesARunAllToDo() {
         String md = visas.composeMarkdown(BrokenRuns.PR_13583, BrokenRuns.buildPassedOnRerun());
 
-        assertThat(md.substring(md.indexOf("\n\n") + 2))
-            .startsWith("🛑 **Build failed in this run and passed on a re-run since — 145 suites that need it never "
-                + "ran; /run-all to run them**\n- Did not run: Platform .NET (Core Linux), ")
-            .doesNotContain("- Build:", "the RunAll was interrupted", "doesn't cover");
+        assertThat(md).startsWith("⚠️ **No blockers found, 145 suites never ran** · ")
+            .contains("\n\nBuild failed in this run and passed on a re-run since — 145 suites that need it never ran:\n"
+                + "- Did not run: Platform .NET (Core Linux), ")
+            .contains("**Next:** run RunAll again: the suites that never ran need it.")
+            .doesNotContain("- Build:", "RunAll was interrupted");
     }
 
-    /**
-     * The page heads these suites "Broken suites" and says they have no reliable result; the comment said "no reliable
-     * run" and the visa "failed without a reliable run".
-     */
+    /** More suites than a list names one by one go by cause: the 60 of the glitch are one line. */
     @Test
-    void theArtifactGlitchIsOneLineAndTheCaveatNamesTheCauses() {
+    void theArtifactGlitchIsOneLine() {
         String md = visas.composeMarkdown(BrokenRuns.PR_13655, BrokenRuns.artifactsGlitch());
 
         assertThat(visas.compose(BrokenRuns.PR_13655, BrokenRuns.artifactsGlitch()))
-            .contains("(!) *Broken suites* (no reliable result):\n- ci2 glitch: artifacts unavailable (60 suites): ");
+            .startsWith("(!) *No blockers found, 64 suites need a re-run* — ")
+            .contains("\n\n- ci2 glitch: artifacts unavailable (60 suites): ");
 
         assertThat(md)
-            .contains("- 64 suites have no reliable result (60× ci2 glitch: artifacts unavailable; 2× non-zero "
-                + "exit code; execution timeout; …)\n")
-            .contains("⚠️ **Broken suites** (no reliable result):\n"
-                + "- ci2 glitch: artifacts unavailable (60 suites): Suite 1, Suite 2, Suite 3, Suite 4, Suite 5 and 55 "
+            .startsWith("⚠️ **No blockers found, 64 suites need a re-run** · ")
+            .contains("**Next:** re-run the 64 suites above.\n")
+            .contains("\n\n- ci2 glitch: artifacts unavailable (60 suites): Suite 1, Suite 2, Suite 3, Suite 4, Suite 5 and 55 "
                 + "more\n"
                 + "- non-zero exit code (2 suites): PDS 5, PDS 6\n"
                 + "- Cache 5: execution timeout — ran 12 of master's 35 tests\n"
@@ -82,9 +85,8 @@ class BrokenGroupsVerdictTest {
             List.of(new BrokenSuite("IgniteTests24Java8_Ml", 9392102L, "Machine Learning",
                 List.of("ran 12 of master's 35 tests"), 12, 35))));
 
-        assertThat(md).contains("- Machine Learning: ran 12 of master's 35 tests\n")
-            .contains("- 1 suite has no reliable result (ran 12 of master's 35 tests)\n")
-            .doesNotContain("tests — ran 12");
+        assertThat(md).contains("- [Machine Learning](https://ci2.ignite.apache.org/build/9392102) — ran 12 of master's 35"
+            + " tests\n\n");
     }
 
     /**
@@ -93,51 +95,42 @@ class BrokenGroupsVerdictTest {
      */
     @Test
     void suitesShortOnlyOfTestsKeepTheirOwnCountsInAGroup() {
-        AnalysisResult r = BrokenRuns.withBroken(BrokenRuns.artifactsGlitch(), List.of(
-            new BrokenSuite("IgniteTests24Java8_Ml", 1L, "Machine Learning", List.of("ran 12 of master's 35 tests"), 12,
-                35),
-            new BrokenSuite("IgniteTests24Java8_Cache5", 2L, "Cache 5", List.of("ran 30 of master's 80 tests"), 30,
-                80)));
+        AnalysisResult r = BrokenRuns.withBroken(BrokenRuns.artifactsGlitch(), six(i -> new BrokenSuite(
+            "IgniteTests24Java8_Ml" + i, i, "Machine Learning " + i, List.of("ran " + (10 + i) + " of master's 35 tests"),
+            10 + i, 35)));
 
-        String group = "ran fewer tests than on master (2 suites): Machine Learning (ran 12 of master's 35 tests), "
-            + "Cache 5 (ran 30 of master's 80 tests)\n";
+        String group = "ran fewer tests than on master (6 suites): Machine Learning 1 (ran 11 of master's 35 tests), "
+            + "Machine Learning 2 (ran 12 of master's 35 tests), ";
         int pr = BrokenRuns.PR_13655;
-        for (String body : List.of(visas.composeMarkdown(pr, r), visas.compose(pr, r))) {
-            assertThat(body).contains("- " + group)
-                .contains("- 2 suites have no reliable result (2× ran fewer tests than on master)\n")
-                .doesNotContain("ran N");
-        }
+        for (String body : List.of(visas.composeMarkdown(pr, r), visas.compose(pr, r)))
+            assertThat(body).contains("- " + group).doesNotContain("ran N");
     }
 
     /** Two suites short by the same count: the group's line says the count, and the names do not repeat it. */
     @Test
     void aShortfallTheGroupNamesIsNotRepeatedAfterEachSuite() {
         String md = visas.composeMarkdown(BrokenRuns.PR_13655, BrokenRuns.withBroken(BrokenRuns.artifactsGlitch(),
-            List.of(
-                new BrokenSuite("IgniteTests24Java8_Ml", 1L, "Machine Learning", List.of("ran 12 of master's 35 tests"),
-                    12, 35),
-                new BrokenSuite("IgniteTests24Java8_Ml2", 2L, "Machine Learning 2",
-                    List.of("ran 12 of master's 35 tests"), 12, 35))));
+            six(i -> new BrokenSuite("IgniteTests24Java8_Ml" + i, i, "Machine Learning " + i,
+                List.of("ran 12 of master's 35 tests"), 12, 35))));
 
-        assertThat(md).contains("- ran 12 of master's 35 tests (2 suites): Machine Learning, Machine Learning 2\n");
+        assertThat(md).contains("- ran 12 of master's 35 tests (6 suites): Machine Learning 1, Machine Learning 2, ");
     }
 
     /** Two suites hung the same way, each after its own share of master's tests: neither's numbers fit the other. */
     @Test
     void aGroupLineGivesEachSuiteItsOwnShortfall() {
         String md = visas.composeMarkdown(BrokenRuns.PR_13655, BrokenRuns.withBroken(BrokenRuns.artifactsGlitch(),
-            List.of(
-                new BrokenSuite("IgniteTests24Java8_CacheFailover5", 1L, "Cache (Failover) 5", List.of(
-                    "execution timeout", "Number of tests 5 is 93% less than 67 in build #1141"), 5, 67),
-                new BrokenSuite("IgniteTests24Java8_DiskPageCompressions8", 2L, "Disk Page Compressions 8", List.of(
-                    "execution timeout", "Number of tests 50 is 77% less than 216 in build #2313"), 50, 216))));
+            six(i -> new BrokenSuite("IgniteTests24Java8_CacheFailover" + i, i, "Cache (Failover) " + i, List.of(
+                "execution timeout", "Number of tests " + 5 * i + " is " + (90 - i) + "% less than " + (60 + i)
+                    + " in build #114" + i), 5 * i, 60 + i))));
 
         assertThat(md)
-            .contains("- 2 suites have no reliable result (2× execution timeout · Number of tests N is N% less than "
-                + "N in build #N)\n")
-            .contains("- execution timeout · Number of tests N is N% less than N in build #N (2 suites): Cache "
-                + "(Failover) 5 (ran 5 of master's 67 tests), Disk Page Compressions 8 (ran 50 of master's 216 "
-                + "tests)\n")
-            .doesNotContain("#1141", "#2313");
+            .contains("- execution timeout · Number of tests N is N% less than N in build #N (6 suites): Cache "
+                + "(Failover) 1 (ran 5 of master's 61 tests), Cache (Failover) 2 (ran 10 of master's 62 tests), ")
+            .doesNotContain("#1141", "#1142");
+    }
+
+    private static List<BrokenSuite> six(IntFunction<BrokenSuite> suite) {
+        return IntStream.rangeClosed(1, 6).mapToObj(suite).toList();
     }
 }

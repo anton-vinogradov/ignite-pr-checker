@@ -10,9 +10,8 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * The PR comment and the JIRA visa say "1 run", "watch", "pre-existing", "broken" and "can't prove the PR is clean",
- * and nothing in them said where those words are explained. Whatever a verdict says, its last line now links the
- * verdict glossary.
+ * The PR comment and the JIRA visa say "1 run", "blockers" and "no result", and nothing in them said where those
+ * words are explained. Whatever a verdict says, its last line names the run and links the verdict glossary.
  */
 class VerdictFooterTest {
     private static final int PR = 13575;
@@ -36,7 +35,7 @@ class VerdictFooterTest {
 
         assertEndsWithTheLink(PR, result(List.of(blocker)));
         assertThat(visas.composeMarkdown(PR, result(List.of(blocker))))
-            .contains("</sub>\n\n<sub>What each label means");
+            .contains("</sub>\n\n<sub>RunAll [9001](https://ci2.example/build/9001) · [glossary](");
     }
 
     /** A failed Build is the whole verdict: nothing else ran, and the verdict stops right after it. */
@@ -47,10 +46,10 @@ class VerdictFooterTest {
 
     private void assertEndsWithTheLink(int pr, AnalysisResult r) {
         assertThat(visas.composeMarkdown(pr, r))
-            .endsWith("\n\n<sub>What each label means and what to do: [verdict glossary](" + GLOSSARY + ").</sub>")
+            .endsWith(" · [glossary](" + GLOSSARY + ")</sub>")
             .containsOnlyOnce(GLOSSARY);
         assertThat(visas.compose(pr, r))
-            .endsWith("\n\n_What each label means and what to do: [verdict glossary|" + GLOSSARY + "]._")
+            .endsWith(" · [glossary|" + GLOSSARY + "]_")
             .containsOnlyOnce(GLOSSARY);
     }
 

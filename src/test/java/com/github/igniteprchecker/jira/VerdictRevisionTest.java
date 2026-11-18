@@ -103,10 +103,10 @@ class VerdictRevisionTest {
 
         standing.sweep();
 
-        verify(github).appComment(eq(PR), eq(AUTHOR), contains("· tested [ec2c458](https://github.com/apache/ignite/"
-            + "pull/13335/commits/" + TESTED + ") ·"));
-        verify(jira).addCommentWithId(eq("jira-pat"), eq(ISSUE), contains("· tested [ec2c458|https://github.com/apache/"
-            + "ignite/pull/13335/commits/" + TESTED + "] ·"));
+        verify(github).appComment(eq(PR), eq(AUTHOR), contains(" · [ec2c458](https://github.com/apache/ignite/"
+            + "pull/13335/commits/" + TESTED + ") · [glossary]("));
+        verify(jira).addCommentWithId(eq("jira-pat"), eq(ISSUE), contains(" · [ec2c458|https://github.com/apache/"
+            + "ignite/pull/13335/commits/" + TESTED + "] · [glossary|"));
     }
 
     @Test

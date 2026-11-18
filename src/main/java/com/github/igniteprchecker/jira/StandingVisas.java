@@ -1985,11 +1985,9 @@ public class StandingVisas implements SnapshotCache {
     /** The verdict of the RunAll in the comment {@link #postCommentFromPage} puts in, without its last line. */
     private String pageCommentBody(String tcToken, int pr, long buildId, AnalysisResult res, String starter) {
         PendingCommits.Ahead ahead = pending.since(tcToken, pr, buildId);
-        Integer commitsAhead = ahead == null ? null : Math.max(ahead.commits(), 1);
         Enrollment started = starter == null ? null : enrolled.get(starter);
 
-        return (started == null ? "" : mention(started)) + commentText(pr, res, ahead, revision(tcToken, buildId))
-            + (Caveats.standing(res, commitsAhead) == Caveats.Standing.BLOCKERS ? NEXT_STEP : "");
+        return (started == null ? "" : mention(started)) + commentText(pr, res, ahead, revision(tcToken, buildId));
     }
 
     /**
@@ -3395,7 +3393,6 @@ public class StandingVisas implements SnapshotCache {
         String note = owed.note();
         String settled = settledLine(owed.waves());
         PendingCommits.Ahead ahead = pending.since(tcToken, pr.number(), buildId);
-        Integer commitsAhead = ahead == null ? null : Math.max(ahead.commits(), 1);
         String sha = revision(tcToken, buildId);
 
         Delivery visaSent = Delivery.NOT_DUE;
@@ -3420,8 +3417,6 @@ public class StandingVisas implements SnapshotCache {
                 md = md + "\n\n_No JIRA visa: the PR title names no IGNITE ticket._";
             else if (owed.visa() && !visa && e.options().autoVisa() && e.jira().waits())
                 md = md + "\n\n_" + visaWaits(whyGone(e.jira())) + "_";
-            if (Caveats.standing(res, commitsAhead) == Caveats.Standing.BLOCKERS)
-                md = md + NEXT_STEP;
             synchronized (commentPosts) {
                 commentIn = upsertGhComment(who, e, pr.number(), buildId, md, verdictKey(res));
             }
@@ -4485,10 +4480,6 @@ public class StandingVisas implements SnapshotCache {
     private static String earlyWave(int suites) {
         return suites + (suites == 1 ? " suite" : " suites") + " that failed mid-run";
     }
-
-    /** The last line of a red verdict in the PR: what the author does next. */
-    private static final String NEXT_STEP = "\n\n➡️ **Next:** fix the blockers, push, and run RunAll again — a "
-        + "`/run-all` comment here does it when PR commands are on in the checker's ⚙.";
 
     /**
      * The snapshot on disk: enrollments plus the auto re-run bookkeeping (so a restart can't grant extra
