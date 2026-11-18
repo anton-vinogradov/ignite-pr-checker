@@ -692,7 +692,7 @@ class FlakyBoardPageTest {
 
         String html = out.get("html").asText();
         String run = "<a href=\"https://ci2.example/buildConfiguration/IgniteTests24Java8_";
-        assertThat(panel(html, "suite@IgniteTests24Java8_PlatformCppWin")).isEqualTo("<p class=\"full\">Platform C++ CMake "
+        assertThat(panel(html, "suite@IgniteTests24Java8_PlatformCppWin")).startsWith("<p class=\"full\">Platform C++ CMake "
             + "(Win x64)</p><p>Failing now: the last 4 master runs in a row, since " + run + "PlatformCppWin/8997\" "
             + "target=\"_self\" rel=\"noopener\">7 Oct 08:16</a>. Last good run: " + run + "PlatformCppWin/8996\" "
             + "target=\"_self\" rel=\"noopener\">7 Oct 07:16</a>.</p><p class=\"muted\">Failed as a broken suite in 2 PRs in "
@@ -700,7 +700,11 @@ class FlakyBoardPageTest {
             + "target=\"_self\">#13655</a></p><p class=\"muted\">A PR run of this suite can end the same way: it then "
             + "shows as a broken suite, not as a blocker.</p><div class=\"acts\"><a class=\"ext\" href=\"https://ci2.example/"
             + "buildConfiguration/IgniteTests24Java8_PlatformCppWin/9000\" target=\"_self\" rel=\"noopener\" title=\"Open "
-            + "the latest problem run in TeamCity.\">latest problem run</a></div></div>");
+            + "the latest problem run in TeamCity.\">latest problem run</a></div>"
+            + "<details data-history-key=\"suite@IgniteTests24Java8_PlatformCppWin\">"
+            + "<summary data-history=\"suite@IgniteTests24Java8_PlatformCppWin\">Master runs, old → new</summary><ul>")
+            .contains("aria-label=\"3 Oct 08:16 · reported its tests · click opens build #8901\"")
+            .endsWith("</ul></details></div>");
         assertThat(panel(html, "suite@IgniteTests24Java8_Snapshots2")).contains("<p>Failing now: its latest master run, "
             + run + "Snapshots2/9000\" target=\"_self\" rel=\"noopener\">7 Oct 11:16</a>. Last good run: " + run
             + "Snapshots2/8999\" target=\"_self\" rel=\"noopener\">7 Oct 10:16</a>.</p>")

@@ -210,7 +210,7 @@ class RussianFlakyBoardTest {
 
         assertThat(EnglishLeft.in(out.get("texts"), out.get("html").asText(), NAMES)).isEmpty();
         assertThat(out.get("texts").get("none").asText()).contains("▾ Недавно сломаны 0",
-            "✓ За последние 100 прогонов master ни один тест не сломался.",
+            "Среди уже проверенных тестов таких нет.",
             "Каждая сьюта отчиталась о тестах в последних 100 прогонах master.",
             "Нет тестов, которые падают в каждом прогоне.");
         assertThat(out.get("texts").get("filtered").asText()).contains("Фильтру ничего не соответствует.");
