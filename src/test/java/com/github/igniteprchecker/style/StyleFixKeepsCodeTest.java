@@ -16,10 +16,13 @@ import com.github.igniteprchecker.jira.StandingVisas;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 /**
@@ -84,15 +87,28 @@ class StyleFixKeepsCodeTest {
         assertThat(pushed).contains("\n        map.put(\"k\", \"some long text here\");\n");
     }
 
-    @Test
-    void anOperatorIsPaddedNextToItselfNotInsideTheLiteralAfterIt() {
-        String pushed = pushed("""
-                public String text(String msg) {
-                    return "Failed to do: "+msg+" (will retry later)";
-                }
-            """);
+    /** Given either JVM language, when the operator is fixed, then its padding leaves both string literals intact. */
+    @ParameterizedTest
+    @ValueSource(strings = {"en", "ru"})
+    void anOperatorIsPaddedNextToItselfNotInsideTheLiteralAfterIt(String language) {
+        Locale previous = Locale.getDefault();
+        Locale display = Locale.getDefault(Locale.Category.DISPLAY);
+        Locale format = Locale.getDefault(Locale.Category.FORMAT);
+        try {
+            Locale.setDefault(Locale.forLanguageTag(language));
+            String pushed = pushed("""
+                    public String text(String msg) {
+                        return "Failed to do: "+msg+" (will retry later)";
+                    }
+                """);
 
-        assertThat(pushed).contains("        return \"Failed to do: \" + msg + \" (will retry later)\";\n");
+            assertThat(pushed).contains("        return \"Failed to do: \" + msg + \" (will retry later)\";\n");
+        }
+        finally {
+            Locale.setDefault(previous);
+            Locale.setDefault(Locale.Category.DISPLAY, display);
+            Locale.setDefault(Locale.Category.FORMAT, format);
+        }
     }
 
     @Test

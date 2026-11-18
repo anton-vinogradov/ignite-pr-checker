@@ -82,6 +82,7 @@ public class CheckstyleRunner {
             Checker checker = new Checker();
             try {
                 checker.setModuleClassLoader(Checker.class.getClassLoader());
+                checker.setLocaleLanguage("en");
                 checker.configure(config);
                 checker.addListener(new AuditListener() {
                     @Override public void auditStarted(AuditEvent evt) {
