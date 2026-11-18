@@ -11,6 +11,7 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
+import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.tc.TcClient;
 import com.sun.net.httpserver.HttpServer;
@@ -228,7 +229,7 @@ class FlakyQueueTest {
     private FlakyStats flaky() {
         when(warmer.borrowToken()).thenReturn("tok");
 
-        return new FlakyStats(cache, mapper, tc, warmer);
+        return new FlakyStats(cache, mapper, tc, warmer, mock(GithubClient.class));
     }
 
     /** {@code runs}: 'F' or 'P' per master run, newest first. */

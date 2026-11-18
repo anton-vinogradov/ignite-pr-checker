@@ -268,6 +268,45 @@ function timeOf(ms) {
     return new Date(ms).toLocaleTimeString(LANG === 'ru' ? 'ru-RU' : undefined);
 }
 
+// "just now", "5m ago", "3h ago", "4d ago": how long ago ts was.
+function ago(ts) {
+    if (!ts) return T('just now');
+    const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (s < 10) return T('just now');
+    if (s < 60) return T`${s}s ago`;
+    const m = Math.round(s / 60);
+    if (m < 60) return T`${m}m ago`;
+    const h = Math.round(m / 60);
+    return h < 48 ? T`${h}h ago` : T`${Math.round(h / 24)}d ago`;
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// "15 Sep 21:05" in the viewer's time zone; the year only when it is not this one. In Russian "15 сентября в 21:05".
+function fmtDay(ms) {
+    return LANG === 'ru' ? fmtDayAt(ms) : `${fmtDate(ms)} ${clockOf(ms)}`;
+}
+
+// "15 Sep at 21:05": a moment named in a sentence.
+function fmtDayAt(ms) {
+    return T`${fmtDate(ms)} at ${clockOf(ms)}`;
+}
+
+// "15 Sep", or "15 Sep 2025" in another year; in Russian "15 сентября", "15 сентября 2025 г.".
+function fmtDate(ms) {
+    const d = new Date(ms);
+    const otherYear = d.getFullYear() !== new Date(Date.now()).getFullYear();
+    if (LANG === 'ru')
+        return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', ...(otherYear ? { year: 'numeric' } : {}) });
+    return `${d.getDate()} ${MONTHS[d.getMonth()]}${otherYear ? ' ' + d.getFullYear() : ''}`;
+}
+
+// "21:05".
+function clockOf(ms) {
+    const d = new Date(ms);
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
 // The states of a run TeamCity names, as the chips show them.
 const RUN_STATES = { queued: phrase('queued'), running: phrase('running') };
 
@@ -377,15 +416,15 @@ function kindLabel(kind, failedRuns) {
         : T('environment/timing — a re-run may pass');
 }
 
-// The labels the failure lists of the PR page and the flaky board share: the prompt copy, and the toggle of a
-// failure panel while it is closed and while it is open ([label, title]).
+// The prompt copy, as the failure lists of the PR page and the master board name it, and the toggle of a failure
+// panel of the PR page while it is closed and while it is open ([label, title]).
 const AI_PROMPT = phrase('copy AI prompt');
 const FAILURE_CLOSED = [phrase('failure ▸'), phrase('Show the failure message and stack trace.')];
 const FAILURE_OPEN = [phrase('failure ▾'), phrase('Hide the failure message.')];
 
 // The toggle of a failure panel reads as the panel stands.
-function paintFailureToggle(btn, open, closed = FAILURE_CLOSED, opened = FAILURE_OPEN) {
-    const [label, title] = open ? opened : closed;
+function paintFailureToggle(btn, open) {
+    const [label, title] = open ? FAILURE_OPEN : FAILURE_CLOSED;
     btn.setAttribute('aria-expanded', String(open));
     btn.textContent = T(label);
     btn.title = T(title);

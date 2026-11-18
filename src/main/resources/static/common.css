@@ -2,13 +2,15 @@
    element. A link leads to another page: text in the accent colour, underlined on hover. A button acts on this page:
    a border, a neutral fill and the text colour. A tag only tells: a light grey fill, no border. Colour means
    something: red is for the PR's author to fix, amber is "not sure, wait or re-run", green is clean or running,
-   blue is a link or the selected switch. Text on an accent or red fill takes --on-accent / --on-bad. */
+   blue is a link or the selected switch. Text on an accent or red fill takes --on-accent / --on-bad. --bad-bg is
+   the tint under red text; --pass is a passed run in a strip of runs, quiet next to a failed one in --bad. */
 :root {
     --bg: #fff; --fg: #1a1a1a; --muted: #666; --line: #e2e2e2; --line-strong: #c0c0c0;
     --bad: #c0392b; --on-bad: #fff; --ok: #2e7d32; --ok-bg: #e6f4ea; --warn: #a35f00; --warn-bg: #fff3e0;
     --accent: #1565c0; --accent-hover: #0d4ea0; --on-accent: #fff; --sel: #eef4ff; --row-hover: #f7f7f7;
     --pane-bg: #fff; --card-bg: #fff; --details-bg: #f7f7f7; --input-bg: #fff; --btn-bg: #fafafa; --btn-hover: #f0f4fb;
     --fill: rgba(128, 128, 128, 0.14); --primary-bg: #1a1a1a; --on-primary: #fff;
+    --bad-bg: #fdecea; --pass: #a9d6b0;
     --radius: 6px; --radius-card: 10px; --radius-small: 5px; --radius-tag: 4px;
 }
 html[data-theme="dark"] {
@@ -17,6 +19,7 @@ html[data-theme="dark"] {
     --accent: #6ab0ff; --accent-hover: #8cc4ff; --on-accent: #17191c; --sel: #22303f; --row-hover: #1f2328;
     --pane-bg: #17191c; --card-bg: #17191c; --details-bg: #1f2328; --input-bg: #1f2328; --btn-bg: #24282d; --btn-hover: #2b333d;
     --fill: rgba(154, 160, 166, 0.18); --primary-bg: #e6e6e6; --on-primary: #17191c;
+    --bad-bg: #3a1f1c; --pass: #35593d;
 }
 html[data-theme="jetbrains"] {
     --bg: #17191c; --fg: #dfe1e5; --muted: #9da0a8; --line: #34383d; --line-strong: #4a4f55;
@@ -24,6 +27,7 @@ html[data-theme="jetbrains"] {
     --accent: #6e9ffb; --accent-hover: #8ab1ff; --on-accent: #17191c; --sel: #1f2b45; --row-hover: #1f2328;
     --pane-bg: #1c1f23; --card-bg: #1c1f23; --details-bg: #1f2328; --input-bg: #1f2328; --btn-bg: #24282d; --btn-hover: #2b333d;
     --fill: rgba(157, 160, 168, 0.18); --primary-bg: #dfe1e5; --on-primary: #17191c;
+    --bad-bg: #3a2023; --pass: #37553c;
     --radius: 3px; --radius-card: 4px; --radius-small: 3px; --radius-tag: 3px;
 }
 html[data-theme="terminal"] {
@@ -32,6 +36,7 @@ html[data-theme="terminal"] {
     --accent: #58a6ff; --accent-hover: #79b8ff; --on-accent: #0d1117; --sel: #0d2440; --row-hover: #161b22;
     --pane-bg: #0d1117; --card-bg: #0d1117; --details-bg: #161b22; --input-bg: #010409; --btn-bg: transparent; --btn-hover: #161b22;
     --fill: rgba(139, 148, 158, 0.18); --primary-bg: #238636; --on-primary: #fff;
+    --bad-bg: transparent; --pass: #1f5c2e;
     --radius: 2px; --radius-card: 2px; --radius-small: 2px; --radius-tag: 2px;
 }
 

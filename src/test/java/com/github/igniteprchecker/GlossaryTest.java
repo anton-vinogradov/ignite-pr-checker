@@ -97,8 +97,8 @@ class GlossaryTest {
             assertThat(link).startsWith(TOUR_URL);
             assertThat(anchors).as(link).contains(link.substring(TOUR_URL.length()));
         }
-        assertThat(links).as("the flaky board and the PR comment keep their documentation links")
-            .contains(TOUR_URL + "the-flaky-board-flakyhtml", VisaService.GLOSSARY);
+        assertThat(links).as("the master board and the PR comment keep their documentation links")
+            .contains(TOUR_URL + "the-master-board-flakyhtml", VisaService.GLOSSARY);
 
         for (Path tour : List.of(TOUR, TOUR_RU)) {
             Matcher local = LOCAL_LINK.matcher(read(tour));
@@ -125,8 +125,9 @@ class GlossaryTest {
             " pushed since this run — it tested older code", "new commits pushed since this run — it tested older code",
             "mixed run — ", " re-ran on ", ", the rest of the RunAll ran on ",
             "; only a RunAll of the PR's head can prove it clean");
-        quoted(MAIN.resolve("analysis/ChainCollector.java"), "compilation error", "execution timeout",
-            "non-zero exit code", "JVM crash / out of memory", "failed dependency", "failed without running tests");
+        quoted(MAIN.resolve("analysis/model/ProblemKind.java"), "compilation error", "execution timeout",
+            "non-zero exit code", "JVM crash / out of memory", "failed dependency");
+        quoted(MAIN.resolve("analysis/ChainCollector.java"), "failed without running tests");
         quoted(MAIN.resolve("analysis/model/BrokenGroup.java"), "ci2 glitch: artifacts unavailable (",
             " failed in this run and passed on a re-run since — ", " never ran; ", " to run them",
             "nothing else ran", " did not run; fix the build, then ", "ran fewer tests than on master");

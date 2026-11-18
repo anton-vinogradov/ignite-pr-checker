@@ -1359,7 +1359,7 @@ public class BlockerAnalyzer {
         return versions.isEmpty() ? null : String.join(REVISIONS_JOINED, versions);
     }
 
-    private static String firstRevision(TcModel.Revisions revs) {
+    static String firstRevision(TcModel.Revisions revs) {
         if (revs == null || revs.revision() == null || revs.revision().isEmpty())
             return null;
 

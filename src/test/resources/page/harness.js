@@ -281,6 +281,12 @@ const page = {
         for (const fn of winListeners.popstate || []) fn();
         await settle();
     },
+    // A mouse event on `target`, such as a click, as the document hears it.
+    async mouse(type, target, more) {
+        const e = { target, preventDefault() {}, ctrlKey: false, metaKey: false, clientX: 0, clientY: 0, ...more };
+        for (const fn of docListeners[type] || []) fn(e);
+        await settle();
+    },
     async keydown(key, target, more) {
         doc.activeElement = target || doc.body;
         const e = { key, target: doc.activeElement, preventDefault() {}, ctrlKey: false, metaKey: false, altKey: false,

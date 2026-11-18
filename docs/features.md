@@ -21,12 +21,12 @@ The PR comment and the JIRA visa link here. The numbers are the defaults in the 
 | **Recently started failing** | Tests failing on the code this run tested, with too few runs of it to tell a break from a flake. Not blockers yet. | **Rerun** the suite. If it keeps failing, it becomes a blocker; if it passes, it drops out. |
 | **Could not be checked** | Failed tests that TeamCity errors kept from being compared with master and the branch. Not counted as blockers. | Nothing: the checker tries them again on its own. |
 | **Run in progress — waiting for results** | The first run is still going; its empty blocker list is not a completed verdict. Partial results remain on the page. | Wait for the run's results. The activity line says whether automatic re-runs are still pending. |
-| **Broken suites** | Suites with no reliable result ([causes](#broken-suite-causes)). A timed-out or crashed suite is listed here, and the checker does not look for blockers in it. Its failures would come from the timeout or crash, and some tests never ran. | Check the latest master result shown beside each suite before rerunning. The verdict can't see their tests. A suite that failed to compile has no **Rerun**: it needs a code fix. |
+| **Broken suites** | Suites with no reliable result ([causes](#broken-suite-causes)). A timed-out or crashed suite is listed here, and the checker does not look for blockers in it. Its failures would come from the timeout or crash, and some tests never ran. The suites whose master runs end this way are on the master board (`/flaky.html`) under **Problem suites**. | Check the latest master result shown beside each suite before rerunning. The verdict can't see their tests. A suite that failed to compile has no **Rerun**: it needs a code fix. |
 | **Fewer tests than master** | Suites that ran at least 10% fewer tests than the same suite on master; only suites with 20 or more tests on master are compared. Tests that never ran can't fail. | If the PR removes tests on purpose, nothing. Otherwise compare the test list with master and re-run. |
 | **Crashed near the end of the run** | Suites that hit a timeout, out-of-memory error or JVM crash after running over 90% of master's tests, with no failure blamed on the PR. Their results stand. Shown folded, with the count in its heading. | Nothing for the PR. |
 | **⚠ Suites that never ran** | The RunAll was interrupted: these suites were cancelled and never ran. The verdict says nothing about them. Suites a person cancelled are folded into one line per person. | **Rerun** them, or run RunAll again. |
 | **This PR's tests** | How the test classes the PR adds (`new`) or changes (`changed`) ran in this RunAll. Each class lists its tests that failed or ran longer than 60 s. The **all N tests** button opens every test of the class with its status and time. A test's name opens its run in TeamCity; a suite's name opens the suite's run. The line under a failed test says what the verdict did with it: `blocks this PR`, `recently started failing: …`, `could not be checked` or `not blamed: …`. Each links to the test's row in the matching card: **Blockers**, **Recently started failing**, **Could not be checked** or **Not blamed on this PR**. The verdict does not judge a test of a suite that timed out or crashed (`not checked: its suite broke`). It also does not judge a failure that TeamCity muted (`not checked: TeamCity muted it`). A failure the verdict has not judged reads `not checked yet` while the verdict can still change: a RunAll is still going, or the checker tries again after TeamCity errors. In a final verdict and in a merged PR's verdict, it reads `not checked`. The class line counts what the verdict did with its failures, for example `3 failed (none blamed on this PR)` or `2 failed (2 not checked yet)`. A class that Ignite's own abandoned-tests check finds in no test suite is tagged `not in any suite`. A class with no runs says why, when Ignite's abandoned-tests check and the files changed since the run show the reason: a commit after the run added it or put it in a suite, its suite did not run or broke, or it is a base or `@Ignore` class. When they show no reason, a note above the list names the possible reasons once for all such classes. The abandoned-tests check may still be running or be waiting for a maintainer to approve its run (a push by someone outside the project). It may also be skipped, or its result can't be read. Then a note above the list says so and how many classes did not run, if any. The card does not say why these classes did not run: without the check, nobody can tell. | Check that the new tests ran and passed. Fix a failed test that `blocks this PR`. Add a `not in any suite` class to a test suite or mark it `@Ignore`. |
-| **Not blamed on this PR** | Failures not blamed on the PR, each with its reason: they fail on master too, are flaky, or passed in a later run. Shown folded. | Nothing for this PR. Re-run only to double-check the flaky ones. Tests that fail on master are on the flaky board (`/flaky.html`). |
+| **Not blamed on this PR** | Failures not blamed on the PR, each with its reason: they fail on master too, are flaky, or passed in a later run. Shown folded. | Nothing for this PR. Re-run only to double-check the flaky ones. Tests that fail on master are on the master board (`/flaky.html`). |
 | **✓ No blockers** | The run covered the PR's current code and blamed nothing on it. The PR list shows **✓**. | You can merge the PR. |
 | **No proven blockers yet** | No test was blamed, but tests started failing on the code this run tested: they are under **Recently started failing**. The PR list shows **!**. | **Rerun** their suites: a re-run shows whether these tests are blockers. |
 | **No blockers found — not proven clean** | No test was blamed, but the verdict can't call the PR clean. The amber lines under the heading say why ([caveats](#caveats)). The PR list shows **?**. While the page still checks that the run tested the PR's latest commit, the heading reads **No blockers found**. | Handle what the lines list, then re-run. |
@@ -99,6 +99,9 @@ missing history and a failed lookup are shown separately.
 | `Build failed in this run and passed on a re-run since — N suites that need it never ran; /run-all to run them` | The build passes now, but the suites that need it have no result. | `/run-all` or **Run**. |
 | `— ran 33 of master's 67 tests` (after a cause), `ran 33 of master's 67 tests` (alone), `ran fewer tests than on master` (a group) | How far the broken suite got. The cause explains the shortfall; it is not a missing-tests finding of its own. When TeamCity reported nothing but its own count of this shortfall, the line says only how far the suite got. Several such suites with different counts share the line `ran fewer tests than on master`, and each suite keeps its own count. When TeamCity's count has other numbers, the line keeps it: TeamCity compared with a run it chose itself. | — |
 | anything else | The first line of TeamCity's own problem text. | Open **TC**. |
+
+On the master board the row of a problem suite names the same causes with tags: `timeout`, `crash / out of memory`,
+`exit code`, `compilation` and `dependency`, and `other` for anything else.
 
 ### Tags next to a test
 
@@ -571,7 +574,7 @@ log in from. The journal lists each change. A page that opens without a login is
   [Russian tour](features.ru.md). The **?** links lead to the Russian tour.
 - PR comments, visas in JIRA, the copied AI prompts, the logs and the API stay in English: the Ignite community and
   scripts read them.
-- The status page and the flaky board have no login form: they use your account's language if you are logged in to
+- The status page and the master board have no login form: they use your account's language if you are logged in to
   the checker in this browser.
 - A page that last opened in Russian waits up to 2 s, until it knows the language, so it does not show English first.
 - If you log in on a page in another language, the page opens again in your account's language.
@@ -749,33 +752,78 @@ GitHub account linked. There `/run-all` runs one client suite instead of RunAll:
   on the page does the same once you confirm. When TeamCity has no such suite or refuses the run, the reply says so.
 - The **PR commands** card on the status page names Ignite and all three client repositories.
 
-## The flaky board (`/flaky.html`)
+## The master board (`/flaky.html`)
 
-![The flaky board: tests ranked by how often they fail on master](img/flaky-board.jpg)
+![The master board in the dark theme: the newly broken tests grouped by cause, each cause with its commits, and the problem suites under them](img/flaky-board.jpg)
 
-- Tests that fail on master: the checker does not blame them on any PR, yet they fail in PRs that did not break them.
-  **Failing after a pass** comes first: the latest two or more completed, non-cancelled master runs in the
-  observed window failed consecutively, with a pass before that streak. These are candidates to investigate, not
-  proof of a regression. The other tests form **Flaky on master** (some runs fail,
-  others pass) and **Broken on master** (each of the newest 10 runs failed, or every run when there were fewer).
-- Each group is ranked by master fail rate, then by how many PRs the test failed in during the last 14 days, and shows
-  40 rows at most. The two columns on the right show both: **Master fail rate** (for a broken test, how many runs in a
-  row it failed) and **PRs, last 14 days**.
-- The board collects tests seen failing in cached PR analyses; it does not scan every test on master.
-- A test that runs in several suites gets a row per suite, with that suite's fail rate and its failed master runs.
-- Each row shows a mini history of completed master runs, oldest to newest. **P** and **F** link to the passed or
-  failed run; their tooltips give the finish dates. The preview shows the latest 12 dated runs; **Show all** opens
-  the available window of up to 50. The fail-rate column uses its own sample, which can be larger.
-- The attention group gives the last observed pass, the first failure after it and the current failure streak.
-  These dates bound the observed change; they do not establish when or why the test broke. Without an earlier pass
-  or readable finish dates, the page says the transition is unknown. History is checked at most once per 24 hours;
-  each row shows when. A history not yet checked gets a placeholder until the normal background cycle fills it.
-- Tests muted on TeamCity are left out, and the intro says how many.
+- **Master** in the menu shows the tests that fail on master: the checker does not blame them on any PR, yet they fail
+  in PRs that did not break them. The board collects tests seen failing in cached PR analyses; it does not scan every
+  test on master. A test that runs in several suites gets a row per suite, with that suite's master runs.
+- **Newly broken** comes first: tests that passed before and fail every run now. A test is newly broken when its
+  history ends with 2 or more failed runs in a row after a pass, has at least 5 runs before those failures, and so
+  many failures in a row are unlikely for how seldom it failed before them. One more failure is given the chance
+  `(failures before + 1) / (runs before + 2)`, and the chance of all the failures in a row must be under 1%. So 2
+  failures after 9 passes make a test newly broken, and 3 failures of a test that fails every other run do not.
+- The newly broken tests are grouped by cause: the tests whose first failed run tested the same commit form one
+  group, the latest break first. A group's heading says when its failures began, how many runs failed and how many
+  tests it has; its **copy AI prompt** copies a prompt about all its tests. A group shows 5 rows until **Show all**.
+- Under a group's heading a line names the commits one of which may have broken its tests: those after the last
+  passing run up to the first failing one, counted from the latest of the last passes of the group's tests. One commit
+  stands in the line itself, as a link to it on GitHub. Several are counted, with **compare on GitHub ↗** next to the
+  count; up to 3 are listed under the line, the newest first, and more open with **show**. The checker gets the commits
+  from GitHub in the background and keeps the newest 20; a longer list ends with how many more there are. While GitHub
+  has not listed them, or has no such list, the line holds the link alone, without the count. `No commits in range`
+  says that the last pass and the first failure ran on the same commit, so no code change lies between them. A group
+  has no such line when TeamCity named no commit for its runs. The group's prompt names the range and the listed
+  commits.
+- **Problem suites** comes next: the suites whose master runs end without a test verdict, so their tests go
+  unreported. A problem run is what a PR's verdict calls a broken suite ([causes](#broken-suite-causes)), by the same
+  rule: the run failed with no failed test of its own, or it timed out, ran out of memory or crashed before running
+  over 90% of master's tests. A PR's run of such a suite can end the same way; it then shows under
+  **Broken suites**, not as a blocker. A run that failed some tests reported them and is not a problem run. A
+  cancelled run, and a run that a failed dependency kept from running, are not runs of the suite.
+- A suite's row has a tag for each kind of problem in its history: `timeout`, `crash / out of memory`, `exit code`,
+  `compilation`, `dependency` or `other`, with the number of runs, as in `timeout ×2`, when the history has several
+  kinds. **Problem runs** is the share of problem runs in the suite's history, with the sample next to it when the
+  history holds fewer than 100 runs. **Last problem** says how long ago the latest problem run finished; when the
+  newest run is a problem run, it says `now` and how many runs in a row. **PRs, 14d** is the number of PRs whose
+  verdict listed the suite as broken in the last 14 days. The suites failing now come first, then those with more
+  problem runs, 10 rows until **Show all**. In the strip a full-height red bar is a problem run: the pointer over it
+  names the kind of problem, and a click opens the suite's run in TeamCity.
+- A suite's panel says since when the suite fails and when its last good run was, or when its last problem was and
+  how many of its runs had one. It lists the kinds of problem with their counts when there are several, and the PRs.
+  It links the latest problem run. It has no failure message and no **copy AI prompt**.
+- The suite history comes from master's RunAll runs. The checker asks TeamCity for the finished ones every 3 minutes
+  and reads each new one once, so a problem run shows within minutes of the end of its RunAll. A suite's history
+  holds its last 100 runs; a run that TeamCity reused in several RunAll runs counts once. After the first start the
+  checker reads the newest RunAll runs first, 5 every 3 minutes; until it has read one, the section says
+  `Suite history is not checked yet.` The history survives restarts.
+- **Flaky** holds the tests that fail some runs and pass others, 15 rows until **Show all**. **Fail rate** is the
+  share of failed runs in the test's history, with the sample next to it when the history holds fewer than 100 runs.
+  `↑64%` next to the rate says the test fails more often now: it is the rate of the last 25 runs, shown when it is at
+  least 20 points above the rate of the runs before them and there are 30 or more of those. A click on **Fail rate**,
+  **Last failure** or **PRs, 14d** sorts the section by that column; at first it is sorted by fail rate, then by PRs.
+- **Always failing** holds the tests that failed each of their newest 10 master runs, or every run when there were
+  fewer, 10 rows until **Show all**. The section is folded; a click on a section's heading folds or unfolds it. A test
+  with no pass in its history has no runs to show: its row says `no pass in 100 runs`, or
+  `never passed · new test, 14 runs` when TeamCity has no older run of it. **Last pass** is the day of its latest
+  pass, when there is one.
+- A row shows the test's master runs as a strip of bars, the oldest on the left: a low bar for a passed run, a
+  full-height red bar for a failed one. The pointer over a bar shows when the run finished, and a click opens the run
+  in TeamCity. The strip holds up to 100 completed, non-cancelled runs of the suite. The history is read again after
+  a master run of the suite that failed, and after one that passed when the test's last run had failed, 10 histories
+  every 3 minutes: a test that broke or was fixed changes its section soon after the end of the RunAll. Any other
+  history is read once per 24 hours; a row whose history is not checked yet says so. **PRs, 14d** is the number of
+  PRs the test failed in during the last 14 days.
+- The line above the board says how long ago the latest of these runs finished and how many tests or suites each
+  section has; a click on a number jumps to its section. The field next to it filters the rows by suite or test name.
+- A click on a row opens its panel: the full name, what the runs say, the PRs the test failed in, the chip of the
+  suite's re-run while one is going, **copy failure**, **copy AI prompt**, a link to the latest failed master run and
+  the failure message from the latest failure in a PR. For a newly broken test the panel names the last pass and the
+  first failure, each a link to its run. The message needs a login; the prompt works without one. When a run has no
+  readable finish date, the panel says that the transition is unknown.
+- A section holds 40 tests at most. Tests muted on TeamCity are left out, and the line under the board says how many.
 - The tally survives restarts; a test drops off 14 days after it was last seen failing.
-- Anyone can read the board. **failure ▸** opens a panel with the test's older failed master runs and the failure
-  message from its latest failure in a PR. The message needs a login. **copy AI prompt** copies a prompt to make a flaky
-  test stable, or to find the commit that broke a broken one. It works without a login. The button is in that panel, or
-  on the row when there is no panel. A suite being re-run shows its chip: the PR, the state and the estimate.
 
 ## The status page (`/status.html`)
 
@@ -826,7 +874,7 @@ GitHub account linked. There `/run-all` runs one client suite instead of RunAll:
 
 ## Everything else
 
-- **The top bar**: every page has the same menu with **PRs**, **Flaky tests** and **Status**. The page you are on is
+- **The top bar**: every page has the same menu with **PRs**, **Master** and **Status**. The page you are on is
   underlined. The theme selector is on every page too. Once you are logged in, the PR page shows your name with
   **Log out** beside it. **⚙ Settings** is at the top right and opens the separate account settings page. An operator's name has
   **operator** next to it.

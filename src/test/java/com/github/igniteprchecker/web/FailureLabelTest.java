@@ -91,26 +91,19 @@ class FailureLabelTest {
 
     @Test
     void flakyBoardDoesNotSuggestReRunningATestThatFailsEveryMasterRun() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", """
-            page.route('/api/config', { body: { teamcityUrl: 'https://ci2.example/', githubRepo: 'apache/ignite' } });
-            page.route('/api/top-flaky', { body: { tests: [] } });
-            page.route('/api/reruns', { body: [] });
+        JsonNode out = PageScript.run("flaky.html", PageScript.MASTER_BOARD + """
             page.route('/api/test-details', { body: { kind: 'environment', details: 'Node has not joined' } });
+            board([rebalance, nearReader]);
             await page.load('');
-            async function why(entry) {
-                const btn = page.el('why'), row = page.el('row'), box = page.el('box'), pre = page.el('pre');
-                btn.dataset.occ = 'occ-1';
-                btn.closest = () => row;
-                row.querySelector = () => box;
-                box.classList.add('hidden');
-                box.querySelector = () => pre;
-                pre.dataset.loaded = '';
-                await page.run('toggleDetails')(btn, entry);
-                await page.settle();
-                return pre.textContent;
+            await press({ fold: 'always' });
+            // What the panel of a test's row says above the failure message.
+            async function why(t) {
+                await press({ row: key(t) });
+                const shown = /<pre>([^<]*)/.exec(page.el('flaky').innerHTML)[1];
+                await press({ row: key(t) });
+                return shown;
             }
-            report({ broken: await why({ masterFails: 100, masterRuns: 100 }),
-                flaky: await why({ masterFails: 3, masterRuns: 100 }) });
+            report({ flaky: await why(rebalance), broken: await why(nearReader) });
             """);
 
         assertThat(out.get("broken").asText())

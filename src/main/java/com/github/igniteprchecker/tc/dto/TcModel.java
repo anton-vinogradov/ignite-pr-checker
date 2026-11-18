@@ -165,8 +165,17 @@ public final class TcModel {
     public record SnapshotDeps(int count, List<Build> build) {
     }
 
+    /**
+     * The tests of a build: how many ran, and how many failed, the failures TeamCity muted left out as they do not
+     * fail the build. {@code failed} is null when not asked for, and then left out of the builds kept on disk.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record TestOccurrences(int count, List<TestOccurrence> testOccurrence) {
+    public record TestOccurrences(int count, List<TestOccurrence> testOccurrence,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer failed) {
+        /** The tests without how many failed, in the shape callers used before it was read. */
+        public TestOccurrences(int count, List<TestOccurrence> testOccurrence) {
+            this(count, testOccurrence, null);
+        }
     }
 
     /**
