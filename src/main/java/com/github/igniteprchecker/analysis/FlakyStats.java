@@ -273,16 +273,18 @@ public class FlakyStats implements SnapshotCache {
 
     /**
      * Unmuted tests, once per suite: first the newly broken ones, the latest break first, then other flaky and broken
-     * tests. Each group is cut independently, so a large group does not hide the others.
+     * tests. Each of the last two groups is cut independently, so a large group does not hide the other. The newly
+     * broken ones come whole: a cause is told by all its tests, and with 40 of 88 on the page the board said
+     * "39 tests" of a cause of 87.
      */
     public List<TopFlaky> top(int limit) {
         List<TopFlaky> board = board();
 
-        return Stream.of(board.stream().filter(f -> f.attention() != null).sorted(Comparator
+        return Stream.concat(board.stream().filter(f -> f.attention() != null).sorted(Comparator
                 .comparingLong((TopFlaky f) -> f.attention().firstFailure().finishedAt()).reversed()),
-            board.stream().filter(f -> f.attention() == null && !f.broken()),
-            board.stream().filter(f -> f.attention() == null && f.broken()))
-            .flatMap(group -> group.limit(limit)).toList();
+            Stream.of(board.stream().filter(f -> f.attention() == null && !f.broken()),
+                board.stream().filter(f -> f.attention() == null && f.broken()))
+                .flatMap(group -> group.limit(limit))).toList();
     }
 
     /**

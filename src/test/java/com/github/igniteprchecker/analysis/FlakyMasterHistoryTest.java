@@ -138,7 +138,11 @@ class FlakyMasterHistoryTest {
         assertThat(row.attention().failedRuns()).isEqualTo(3);
     }
 
-    /** Given two tests per group, a one-row limit leaves a candidate, a flaky test and a broken test visible. */
+    /**
+     * Given two tests per group, a one-row limit leaves a flaky test and a broken test visible, and both candidates: a
+     * cause is told by all its tests, how many broke together and each by name in its prompt. Cut like the other
+     * groups, 40 of 88 newly broken tests made "39 tests" of a cause of 87.
+     */
     @Test
     void eachOfTheThreeGroupsKeepsItsOwnDisplayLimit() {
         Map<String, String> histories = Map.of("CandidateA", BROKE, "CandidateB", BROKE,
@@ -150,12 +154,12 @@ class FlakyMasterHistoryTest {
 
         List<FlakyStats.TopFlaky> rows = stats.top(1);
         assertThat(stats.groupSizes()).isEqualTo(new FlakyStats.GroupSizes(2, 2, 2));
-        assertThat(rows).hasSize(3);
-        assertThat(rows.get(0).attention()).isNotNull();
-        assertThat(rows.get(1).attention()).isNull();
-        assertThat(rows.get(1).broken()).isFalse();
+        assertThat(rows).hasSize(4);
+        assertThat(rows.subList(0, 2)).extracting(FlakyStats.TopFlaky::attention).doesNotContainNull();
         assertThat(rows.get(2).attention()).isNull();
-        assertThat(rows.get(2).broken()).isTrue();
+        assertThat(rows.get(2).broken()).isFalse();
+        assertThat(rows.get(3).attention()).isNull();
+        assertThat(rows.get(3).broken()).isTrue();
     }
 
     /**
@@ -410,7 +414,7 @@ class FlakyMasterHistoryTest {
     /**
      * The commit that broke the tests of a cause came after the last pass of each of them, so it is among the commits
      * after the latest of those passes. The board asks GitHub for them once, however many cycles pass, and names them
-     * with the cause whichever of its tests the limit leaves on the page.
+     * with the cause.
      */
     @Test
     void aCauseIsAmongTheCommitsAfterTheLatestLastPassOfItsTests() {
@@ -426,7 +430,8 @@ class FlakyMasterHistoryTest {
         stats.harvest();
         JsonNode answer = mapper.valueToTree(new LeaderboardController(stats, suites(), analysis).topFlaky(1, false));
 
-        assertThat(answer.get("tests")).extracting(test -> test.get("suite").asText()).containsExactly(SUITE);
+        assertThat(answer.get("tests")).extracting(test -> test.get("suite").asText())
+            .containsExactlyInAnyOrder(SUITE, SIBLING);
         assertThat(answer.get("causes").toString()).isEqualTo("[{\"commit\":\"head\",\"base\":\"late\",\"total\":21,"
             + "\"commits\":[{\"sha\":\"head\",\"title\":\"IGNITE-2 Break it (#2)\"},"
             + "{\"sha\":\"between\",\"title\":\"IGNITE-1 Tidy up (#1)\"}]}]");
@@ -437,9 +442,9 @@ class FlakyMasterHistoryTest {
     /** A reader who asks for a whole group gets the board whole, whatever the limit of a poll. */
     @Test
     void theWholeBoardIsNotCut() {
-        observed(Map.of(SUITE, BROKE, SIBLING, BROKE));
-        ci.add(SUITE, BROKE);
-        ci.add(SIBLING, BROKE);
+        observed(Map.of(SUITE, "FPF", SIBLING, "FPF"));
+        ci.add(SUITE, "FPF");
+        ci.add(SIBLING, "FPF");
         FlakyStats stats = stats();
         stats.harvest();
         LeaderboardController board = new LeaderboardController(stats, suites(), analysis);

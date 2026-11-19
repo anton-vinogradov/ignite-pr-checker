@@ -566,18 +566,25 @@ class FlakyBoardPageTest {
         assertThat(out.get("board").asText()).contains("Runs without a finish date: 1; the transition is unknown.");
     }
 
-    /** A board of 40 rows a group says how many tests the group has when it holds more. */
+    /**
+     * A board of 40 rows a group says how many tests the group has when it holds more. The newly broken tests come
+     * whole, so their section has no count of its own to show them by: cut to 40 of 88 it had two buttons one under the
+     * other, "Show all 39" of a cause and "Show all 88" of the section, and the second showed nothing more.
+     */
     @Test
     void aGroupCutShortSaysHowManyItHas() throws Exception {
-        JsonNode out = PageScript.run("master.html", BOARD + """
-            board([tx, rebalance, nearReader], { attentionCount: 44, flakyCount: 41, brokenCount: 1 });
+        JsonNode out = PageScript.run("master.html", PageScript.MASTER_CAUSES + """
+            board([...tests, rebalance, nearReader], { causes, flakyCount: 41, brokenCount: 1 });
             await page.load('');
-            report({ board: page.el('flaky').textContent, chips: page.el('chips').textContent });
+            const shown = page.el('flaky').textContent;
+            report({ board: shown, chips: page.el('chips').textContent,
+                offered: shown.slice(0, shown.indexOf('Problem suites')).match(/Show all \\d+/g) });
             """);
 
-        assertThat(out.get("board").asText()).containsSubsequence("Newly broken 1 of 44 · 1 cause", "Flaky 1 of 41",
+        assertThat(out.get("board").asText()).containsSubsequence("Newly broken 7 tests · 7 causes", "Flaky 1 of 41",
             "Always failing 1");
-        assertThat(out.get("chips").asText()).isEqualTo("44 newly broken0 problem suites41 flaky1 always failing");
+        assertThat(out.get("chips").asText()).isEqualTo("7 newly broken0 problem suites41 flaky1 always failing");
+        assertThat(out.get("offered").isNull()).as("each cause shows its one test").isTrue();
     }
 
     /**
