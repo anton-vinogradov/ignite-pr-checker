@@ -92,8 +92,7 @@ function render() {
     const groups = causes(fresh);
     // How many tests a group has: all of them when the server cut the group, the matching ones under a filter.
     const size = (rows, all) => !ui.q && all > rows.length ? all : rows.length;
-    const sizes = { new: size(fresh, board.attentionCount), flaky: size(flaky, board.flakyCount),
-        always: size(always, board.brokenCount) };
+    const sizes = { new: fresh.length, flaky: size(flaky, board.flakyCount), always: size(always, board.brokenCount) };
     const nothing = text => `<div class="empty">${ui.q ? T('Nothing matches the filter.') : text}</div>`;
 
     $('chips').innerHTML = chip('new', T('<b>{0}</b> newly broken', sizes.new), sizes.new ? 'bad' : 'calm')
@@ -103,11 +102,9 @@ function render() {
         + chip('always', T('<b>{0}</b> always failing', sizes.always), '');
     el.innerHTML = `<div class="board" style="--runs:${runsWindow}">`
         + section('new', T('Newly broken'), !fresh.length ? '0'
-            : `${sizes.new > fresh.length ? groupCount(fresh.length, sizes.new) : countOf(fresh.length, 'test')} · `
-                + countOf(groups.length, 'cause'),
+            : `${countOf(fresh.length, 'test')} · ${countOf(groups.length, 'cause')}`,
             T('Passed before, fail every run now. Find the commit.'),
             fresh.length ? cols('new') + groups.map(cause).join('')
-                + (sizes.new > fresh.length ? showAll('new', sizes.new) : '')
                 : nothing(T('None among the tests checked so far.')))
         + section('suites', T('Problem suites'), String(problem.length),
             T('They end without a test verdict: timeout, crash, out of memory, exit code, compilation error. Their '
@@ -214,15 +211,12 @@ function prsHead() {
 // the page holds when the server cut its group.
 function rows(key, list, limit, size = list.length) {
     const shown = ui.all.has(key) || ui.q ? list : list.slice(0, limit);
-    return shown.map(row).join('') + (shown.length < size ? showAll(key, size) : '');
+    return shown.map(row).join('') + (shown.length < size
+        ? `<button class="why more" type="button" data-all="${esc(key)}">${T`Show all ${size}`}</button>` : '');
 }
 
-function showAll(key, size) {
-    return `<button class="why more" type="button" data-all="${esc(key)}">${T`Show all ${size}`}</button>`;
-}
-
-// The server cuts each group to ROWS_ASKED, as the whole board is over a megabyte. A reader who asks for a whole
-// list or filters needs the rest: the board is asked for whole from then on.
+// The server cuts the flaky and the always failing group to ROWS_ASKED, as the whole board is over a megabyte. A reader
+// who asks for a whole list or filters needs the rest: the board is asked for whole from then on.
 function askForWhole() {
     const b = board;
     if (ui.whole || !b || (b.tests || []).length >= b.attentionCount + b.flakyCount + b.brokenCount) return;

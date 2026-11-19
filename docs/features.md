@@ -826,8 +826,8 @@ GitHub account linked. There `/run-all` runs one client suite instead of RunAll:
   the failure message from the latest failure in a PR. For a newly broken test the panel names the last pass and the
   first failure, each a link to its run. The message needs a login; the prompt works without one. When a run has no
   readable finish date, the panel says that the transition is unknown.
-- The page loads 40 tests of a section; **Show all** and the filter load the rest. Tests muted on TeamCity are left
-  out, and the line under the board says how many.
+- The page loads every newly broken test and 40 tests of each other section; **Show all** and the filter load the
+  rest. Tests muted on TeamCity are left out, and the line under the board says how many.
 - The tally survives restarts; a test drops off 14 days after it was last seen failing.
 
 ## The status page (`/status.html`)
