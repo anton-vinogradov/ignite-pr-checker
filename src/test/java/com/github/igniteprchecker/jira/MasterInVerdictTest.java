@@ -49,6 +49,7 @@ class MasterInVerdictTest {
 
     @BeforeEach
     void theThinClientsBreakOnMasterAndCache5DoesNot() {
+        when(masters.brokenLikeMaster(any(), any())).thenCallRealMethod();
         when(masters.onMaster(any(), any())).thenReturn(OnMaster.SAME);
         when(masters.onMaster(eq("Cache5"), any())).thenReturn(OnMaster.FINE);
     }

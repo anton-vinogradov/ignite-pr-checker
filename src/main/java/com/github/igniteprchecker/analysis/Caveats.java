@@ -199,6 +199,15 @@ public final class Caveats {
         return of(r, null).isEmpty();
     }
 
+    /** The run's only gaps are broken suites with the same problem kind last read on master. */
+    public static boolean onlyMasterFailures(AnalysisResult r, MasterSuites masters) {
+        Gaps gaps = Gaps.of(r);
+        return masters != null && r.blockers().isEmpty() && r.watch().isEmpty() && gaps.broken() > 0
+            && gaps.upstream().isEmpty() && gaps.neverRan() == 0 && gaps.shrunk() == 0 && gaps.unchecked() == 0
+            && !gaps.live() && r.otherCodeRuns().isEmpty()
+            && gaps.causes().stream().allMatch(g -> g.suites().stream().allMatch(s -> masters.brokenLikeMaster(g, s)));
+    }
+
     /**
      * How the verdict stands, by the one rule the PR list's tick, the page's head, the visa and the PR comment follow.
      * {@code commitsAhead} is how far the PR's head has moved past the run; null when unknown, and the run is then
