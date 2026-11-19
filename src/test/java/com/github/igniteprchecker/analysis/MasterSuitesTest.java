@@ -10,13 +10,21 @@ import static org.mockito.Mockito.when;
 import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
+import com.github.igniteprchecker.analysis.model.RunRef;
+import com.github.igniteprchecker.analysis.model.ShrunkSuite;
+import com.github.igniteprchecker.analysis.model.TestVerdict;
+import com.github.igniteprchecker.analysis.model.Upstream;
 import com.github.igniteprchecker.config.AnalysisProperties;
+import com.github.igniteprchecker.config.GithubProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.jira.VisaService;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
+import com.github.igniteprchecker.web.AnalyzeController;
 import com.github.igniteprchecker.web.LeaderboardController;
+import com.github.igniteprchecker.web.PrHeads;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -30,6 +38,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -41,6 +50,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -462,6 +472,76 @@ class MasterSuitesTest {
         assertThat(suites.onMaster(PDS, List.of("TC_EXIT_CODE"))).isEqualTo(MasterSuites.OnMaster.UNKNOWN);
         assertThat(suites.onMaster(CACHE, timeout)).isEqualTo(MasterSuites.OnMaster.FINE);
         assertThat(suites.onMaster("Queries_1", timeout)).isEqualTo(MasterSuites.OnMaster.UNKNOWN);
+    }
+
+    /**
+     * Given real master runs and a PR verdict, Analyze and Refresh mark only a result whose every gap is a matching
+     * problem suite, as the PR comment does; no other missing evidence becomes a master failure.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"same", "no-master", "master-fine", "different-kind", "no-types", "artifacts",
+        "partial", "unknown-kind", "upstream", "blocker", "watch", "interrupted", "shrunk", "unchecked", "running",
+        "mixed", "no-broken"})
+    void thePageMarksOnlyGapsExplainedByMaster(String scenario) {
+        ci.chain(101, scenario.equals("master-fine") ? ok(11, CACHE, 1)
+            : failed(11, CACHE, 1, 0, 0, scenario.equals("unknown-kind") ? "UNRECOGNIZED_MASTER" : "TC_EXECUTION_TIMEOUT"));
+        MasterSuites masters = suites(100);
+        if (!scenario.equals("no-master"))
+            masters.scan();
+        List<String> types = switch (scenario) {
+            case "different-kind" -> List.of("TC_EXIT_CODE");
+            case "no-types" -> List.of();
+            case "unknown-kind" -> List.of("UNRECOGNIZED_PR");
+            case "artifacts" -> List.of("TC_EXECUTION_TIMEOUT", "ARTIFACT_DEPENDENCY_ERROR");
+            default -> List.of("TC_EXECUTION_TIMEOUT", "TC_EXIT_CODE");
+        };
+        BrokenSuite broken = new BrokenSuite(CACHE, 9000, "Cache 1", List.of("execution timeout"), 0, 100, types, null);
+        verdict(13854, 1, List.of(broken), List.of());
+        ObjectNode data = mapper.valueToTree(cache.peekResult(13854).orElseThrow());
+        switch (scenario) {
+            case "partial" -> data.withArray("brokenSuites").add(mapper.valueToTree(new BrokenSuite("Other", 9002,
+                "Other", List.of("execution timeout"), 0, 100, types, null)));
+            case "upstream" -> data.withArray("brokenSuites").add(mapper.valueToTree(new BrokenSuite("Victim", 9002,
+                "Victim", List.of("failed dependency"), 0, 100, List.of(), new Upstream(CACHE, 9000, "Cache 1"))));
+            case "blocker", "watch", "unchecked" -> {
+                TestVerdict test = new TestVerdict(1L, "CacheTest.testPut", CACHE, 9000, "Cache 1", "occ-1",
+                    scenario.equals("blocker"), scenario.equals("watch"), "failed", "FF", 2);
+                data.withArray(scenario.equals("blocker") ? "blockers" : scenario.equals("watch") ? "watch"
+                    : "unverified").add(mapper.valueToTree(test));
+            }
+            case "interrupted" -> data.put("interrupted", true).put("canceledSuites", 1);
+            case "shrunk" -> data.withArray("shrunkSuites").add(mapper.valueToTree(
+                new ShrunkSuite("Other", "Other", 9002, 1, 100, 99)));
+            case "running" -> data.put("live", true).put("liveBuildId", 13854);
+            case "mixed" -> {
+                data.put("revision", "1".repeat(40));
+                data.withArray("otherCodeRuns").add(mapper.valueToTree(
+                    new RunRef(CACHE, "Cache 1", 9002, "2".repeat(40))));
+            }
+            case "no-broken" -> data.putArray("brokenSuites");
+            default -> { }
+        }
+        AnalysisResult result = mapper.treeToValue(data, AnalysisResult.class);
+        BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
+        when(analyzer.analyze("token", 13854)).thenReturn(Optional.of(result));
+        when(analyzer.forceRefresh("token", 13854)).thenReturn(Optional.of(result));
+        AnalyzeController controller = new AnalyzeController(analyzer, mock(RunDeltaStore.class),
+            mock(PendingCommits.class), mock(PrHeads.class), masters);
+
+        for (var response : List.of(controller.analyze(13854, "token"), controller.refresh(13854, "token"))) {
+            JsonNode served = mapper.valueToTree(response.getBody());
+            assertThat(served.get("onlyMasterFailures").asBoolean()).isEqualTo(scenario.equals("same"));
+            if (scenario.equals("same")) {
+                assertThat(served.get("standing").asText()).isEqualTo("UNPROVEN");
+                assertThat(served.get("caveats")).hasSize(1);
+            }
+        }
+        if (scenario.equals("same")) {
+            VisaService visas = new VisaService(new TeamcityProperties("https://ci2.example/"),
+                "https://checker.example", new GithubProperties(null, null, null), null, masters);
+            assertThat(visas.composeMarkdown(13854, result)).contains("same as on master:")
+                .contains("**Next:** nothing to do for this PR.");
+        }
     }
 
     private ObjectNode ok(long build, String suite, int hour) {

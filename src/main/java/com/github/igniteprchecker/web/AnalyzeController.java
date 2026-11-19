@@ -3,6 +3,7 @@ package com.github.igniteprchecker.web;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.Caveats;
+import com.github.igniteprchecker.analysis.MasterSuites;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.RunDeltaStore;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
@@ -10,6 +11,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -26,12 +28,20 @@ public class AnalyzeController {
     private final RunDeltaStore deltas;
     private final PendingCommits pending;
     private final PrHeads heads;
+    private final MasterSuites masters;
 
     public AnalyzeController(BlockerAnalyzer analyzer, RunDeltaStore deltas, PendingCommits pending, PrHeads heads) {
+        this(analyzer, deltas, pending, heads, null);
+    }
+
+    @Autowired
+    public AnalyzeController(BlockerAnalyzer analyzer, RunDeltaStore deltas, PendingCommits pending, PrHeads heads,
+        MasterSuites masters) {
         this.analyzer = analyzer;
         this.deltas = deltas;
         this.pending = pending;
         this.heads = heads;
+        this.masters = masters;
     }
 
     /** Serves the cached analysis (recomputing only on a cache miss). */
@@ -102,7 +112,7 @@ public class AnalyzeController {
 
     private ResponseEntity<?> respond(int pr, Optional<AnalysisResult> result) {
         return result.<ResponseEntity<?>>map(r -> ResponseEntity.ok(Served.of(r, pending.listedPast(r),
-                r.mergedAt() > 0 && analyzer.runsAtMergeDue(pr))))
+                r.mergedAt() > 0 && analyzer.runsAtMergeDue(pr), Caveats.onlyMasterFailures(r, masters))))
             .orElseGet(() -> ResponseEntity.status(404)
                 .body(Map.of("error", "no RunAll build found for PR " + pr)));
     }
@@ -113,17 +123,19 @@ public class AnalyzeController {
      * come with /api/pending; {@code pushed} is its answer ahead of time when the PR list already shows the head past
      * the run, the way the list badges it, and null otherwise. The page words a mixed run itself, next to the head.
      * {@code runsAtMergeDue} is whether a merged PR's verdict may yet be computed once more, with runs queued before
-     * the merge that it did not read.
+     * the merge that it did not read. {@code onlyMasterFailures} means its only gaps have the same problem kinds last
+     * read on master, by the comparison the PR comment uses; it changes neither the standing nor the saved analysis.
      */
     public record Served(@JsonUnwrapped AnalysisResult result, Caveats.Standing standing, List<String> caveats,
-        Map<String, Object> pushed, boolean runsAtMergeDue) {
+        Map<String, Object> pushed, boolean runsAtMergeDue, boolean onlyMasterFailures) {
         static Served of(AnalysisResult r) {
-            return of(r, null, false);
+            return of(r, null, false, false);
         }
 
-        static Served of(AnalysisResult r, PendingCommits.Ahead listed, boolean runsAtMergeDue) {
+        static Served of(AnalysisResult r, PendingCommits.Ahead listed, boolean runsAtMergeDue,
+            boolean onlyMasterFailures) {
             return new Served(r, Caveats.standing(r, null), Caveats.onPage(r),
-                listed == null ? null : answer(listed, Caveats.headMoved()), runsAtMergeDue);
+                listed == null ? null : answer(listed, Caveats.headMoved()), runsAtMergeDue, onlyMasterFailures);
         }
     }
 }

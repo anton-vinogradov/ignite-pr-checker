@@ -177,6 +177,7 @@
         .verdict-lines { font-size: 0.86rem; color: var(--warn); }
         .verdict-lines p { margin: 0 0 0.3rem; }
         .card.verdict.clean .verdict-lines, .card.verdict.checking .verdict-lines { color: var(--muted); }
+        .card.verdict.master-known .verdict-lines { color: var(--fg); }
         .delta { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem 0.5rem; margin-top: 0.4rem; font-size: 0.85rem; color: var(--muted); }
         /* On a phone the bars wrap. Without the gap a bar would touch the one above it and read as one taller bar. */
         .trend { display: inline-flex; flex-wrap: wrap; row-gap: 4px; align-items: flex-end; vertical-align: middle; }
@@ -259,8 +260,8 @@
         .old-run { color: var(--warn); font-weight: 600; }
         .card { border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--card-bg); padding: 1.1rem; margin-top: 1rem; }
         .blockers h2 { color: var(--bad); margin: 0 0 0.3rem; }
-        .card.blockers > h2, .card.watch > h2, .card.interrupted > h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
-        .card.blockers > h2 .sect-act, .card.watch > h2 .sect-act, .card.interrupted > h2 .sect-act { margin-left: auto; }
+        .card.blockers > h2, .card.watch > h2, .card.interrupted > h2, #brokenCard > h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
+        .card.blockers > h2 .sect-act, .card.watch > h2 .sect-act, .card.interrupted > h2 .sect-act, #brokenCard > h2 .sect-act { margin-left: auto; }
         .card.watch, .card.interrupted { border-left: 3px solid var(--warn); border-radius: 0 var(--radius-card) var(--radius-card) 0; }
         .card.watch h2, .card.interrupted h2 { color: var(--warn); margin: 0 0 0.3rem; }
         .caveat { margin: 0 0 0.4rem; font-size: 0.86rem; color: var(--bad); }
@@ -696,7 +697,7 @@
                         <ul id="cancelledSuites" class="tests"></ul>
                     </div>
                     <div id="brokenCard" class="card blockers hidden">
-                        <h2>Broken suites <span id="brokenCount"></span> <button class="help meaning-help" type="button" title="Suites with no reliable result: a compilation error, timeout or crash, or a run they need failed. The checker does not look for blockers in a suite that timed out or crashed: its tests may have failed only because of that." aria-label="What this means">?</button> <span class="sect-act hidden" id="brokenActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun at top</button></span><span id="brokenActsNote" class="act-note hidden"></span></h2>
+                        <h2><span id="brokenHead">Broken suites</span> <span id="brokenCount"></span> <button class="help meaning-help" type="button" title="Suites with no reliable result: a compilation error, timeout or crash, or a run they need failed. The checker does not look for blockers in a suite that timed out or crashed: its tests may have failed only because of that." aria-label="What this means">?</button> <span class="sect-act hidden" id="brokenActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun at top</button></span><span id="brokenActsNote" class="act-note hidden"></span></h2>
                         <p id="brokenAdvice" class="muted rerun-advice"></p>
                         <ul id="brokenSuites" class="tests"></ul>
                     </div>

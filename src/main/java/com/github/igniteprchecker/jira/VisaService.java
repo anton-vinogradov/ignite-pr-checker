@@ -565,8 +565,7 @@ public class VisaService {
             List<BrokenSuite> same = new ArrayList<>();
             for (BrokenGroup g : others) {
                 for (BrokenSuite s : g.suites()) {
-                    boolean asOnMaster = g.kind() == BrokenGroup.Kind.PROBLEM && masters != null
-                        && masters.onMaster(s.suite(), s.problemTypes()) == MasterSuites.OnMaster.SAME;
+                    boolean asOnMaster = masters != null && masters.brokenLikeMaster(g, s);
                     (asOnMaster ? same : rerun).add(s);
                 }
             }

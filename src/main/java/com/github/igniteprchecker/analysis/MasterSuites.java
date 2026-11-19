@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.analysis;
 
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.BrokenGroup;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.ProblemKind;
 import com.github.igniteprchecker.config.AnalysisProperties;
@@ -202,7 +203,7 @@ public class MasterSuites implements SnapshotCache {
 
     /**
      * How a suite that a PR's run left broken, with problems of TeamCity's {@code types}, does on master: the same
-     * when its newest master run ended with a problem of the same kind, fine when every master run read reported its
+     * when its newest master run ended with a problem of the same known kind, fine when every master run read reported its
      * tests. Not known otherwise: no run of it is read yet, the verdict names no types, or master's runs end another
      * way or only at times.
      */
@@ -213,9 +214,15 @@ public class MasterSuites implements SnapshotCache {
         if (s.runs.stream().allMatch(run -> run.kind() == 'P'))
             return OnMaster.FINE;
 
-        char kind = types.stream().map(ProblemKind::of).sorted().findFirst().orElseThrow().letter();
+        ProblemKind kind = types.stream().map(ProblemKind::of).min(ProblemKind::compareTo).orElseThrow();
 
-        return s.runs.get(s.runs.size() - 1).kind() == kind ? OnMaster.SAME : OnMaster.UNKNOWN;
+        return kind != ProblemKind.OTHER && s.runs.get(s.runs.size() - 1).kind() == kind.letter()
+            ? OnMaster.SAME : OnMaster.UNKNOWN;
+    }
+
+    /** A suite broken its own way, rather than kept from running, with the same problem kind last read on master. */
+    public boolean brokenLikeMaster(BrokenGroup group, BrokenSuite suite) {
+        return group.kind() == BrokenGroup.Kind.PROBLEM && onMaster(suite.suite(), suite.problemTypes()) == OnMaster.SAME;
     }
 
     /** See {@link #onMaster}. */

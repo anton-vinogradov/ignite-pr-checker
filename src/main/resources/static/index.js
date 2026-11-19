@@ -889,7 +889,7 @@ function paintPrimary() {
     $('pendingRerun').classList.remove('primary');
     for (const s of sectActs.values()) if (s.rerun) s.rerun.classList.remove('primary');
     paintRerunActs(); // what changed the next step may also start or end an automatic re-run of a pair's suites
-    if (!res || res.mergedAt) return;
+    if (!res || res.mergedAt || masterOnlyVerdict(res)) return;
     const settling = phaseNow && phaseNow.pr === selectedPr && phaseNow.phase === 'settling';
     if (settling || runsNow.some(b => b.runAll)) return;
     if (codeOf(res) === 'old' || mixedRuns(res).length) { $('pendingRerun').classList.add('primary'); return; }
@@ -1102,13 +1102,14 @@ let phaseNow = null; // /api/settling's last answer, with the PR and build it wa
 const BASE_TITLE = document.title || 'Ignite PR Checker';
 const BASE_ICON = '/favicon.png';
 const TAB_COLORS = {
-    running: '#1cb6ed', settling: '#e3a008', blockers: '#d73a49', clean: '#2da44e', watch: '#e3a008', other: '#8b949e' };
+    running: '#1cb6ed', settling: '#e3a008', blockers: '#d73a49', clean: '#2da44e', watch: '#e3a008',
+    master: '#8b949e', other: '#8b949e' };
 
 function tabState() {
     if (!selectedPr || $('analyzeView').classList.contains('hidden')) return null;
     const res = lastResult && lastResult.prNumber === selectedPr ? lastResult : null;
     if (res && verdictFinal(res)) {
-        const verdict = res.blockers.length > 0 ? 'blockers'
+        const verdict = res.blockers.length > 0 ? 'blockers' : masterOnlyVerdict(res) ? 'master'
             : { CLEAN: 'clean', WATCH: 'watch' }[standingOf(res)] || 'other';
         return { kind: 'final', verdict, res };
     }
@@ -1158,7 +1159,8 @@ function paintTab() {
         const n = st.res.blockers.length;
         title = (st.verdict === 'blockers' ? T`❌ ${n} blocker${n === 1 ? '' : 's'}`
             : st.verdict === 'clean' ? T('✅ no blockers')
-            : st.verdict === 'watch' ? T('⚠ started failing') : T('⚠ not proven clean')) + pr;
+            : st.verdict === 'watch' ? T('⚠ started failing')
+            : st.verdict === 'master' ? T('No blockers found') : T('⚠ not proven clean')) + pr;
     }
     else if (selectedPr && !$('analyzeView').classList.contains('hidden'))
         title = prTag(selectedPr, selectedRepo) + ' — Ignite PR Checker';
@@ -1218,7 +1220,7 @@ function notifyIfFinal(st) {
         return;
     const n = st.res.blockers.length, w = (st.res.watch || []).length;
     const head = st.verdict === 'blockers' ? T`${n} blocker${n === 1 ? '' : 's'}`
-        : st.verdict === 'clean' ? T('no blockers')
+        : st.verdict === 'clean' || st.verdict === 'master' ? T('no blockers')
         : st.verdict === 'watch'
             ? T`${w} test${w === 1 ? '' : 's'} started failing. A re-run shows whether they are blockers.`
         : T('no blockers found, not proven clean. Open the page to see why.');
@@ -1241,6 +1243,8 @@ function paintRunActivity() {
         paintSteps(null);
         return;
     }
+    if (masterOnlyVerdict(res) !== $('verdictCard').classList.contains('master-known'))
+        renderVerdictHead(res);
     const phase = phaseNow && phaseNow.pr === res.prNumber && phaseNow.build === res.buildId ? phaseNow : null;
     const steps = runSteps(res, phase);
     const text = runActivityText(res, phase, steps);
@@ -1307,6 +1311,7 @@ function verdictStep(name, res) {
     const n = res.blockers.length, standing = standingOf(res);
     if (n) return { state: 'bad', name, detail: T`${n} blocker${n === 1 ? '' : 's'}` };
     if (standing === 'CLEAN') return { state: 'ok', name, detail: T('no blockers') };
+    if (masterOnlyVerdict(res)) return { state: 'done', name, detail: T('same problem on master') };
     return { state: 'warn', name, detail: standing === 'WATCH' ? T('started failing') : T('not proven clean') };
 }
 
@@ -1402,6 +1407,7 @@ function runActivityText(res, phase, steps) {
         // A skipped step says why itself.
         if (reason && !(steps && steps[2].state === 'off')) parts.push(reason);
         if (!res.mergedAt && !['closed', 'replaced'].includes(phase?.reason)
+            && !masterOnlyVerdict(res)
             && (res.blockers.length || res.watch?.length || res.brokenSuites?.length || res.cancelledSuites?.length
                 || res.shrunkSuites?.length || res.unverified?.length))
             parts.push(T('Review the remaining failures; fix their cause or re-run manually.'));
@@ -2461,9 +2467,9 @@ function mixedRuns(res) {
     return (!res.repo || res.composite) && res.otherCodeRuns ? res.otherCodeRuns : [];
 }
 
-// How the verdict stands (Caveats.Standing), as the server ranks it for the run: a clean run is CLEAN only once it
-// is known to have tested the PR's head, old code when the head moved since, and CHECKING until that is known.
+// A verdict that asks for no action needs confirmation that its run tested the PR's head.
 function standingOf(res) {
+    if (res.onlyMasterFailures && !res.mergedAt && codeOf(res) === 'checking') return 'CHECKING';
     if (res.standing !== 'CLEAN') return res.standing;
     return { current: 'CLEAN', old: 'OLD_CODE', unknown: 'UNKNOWN_CODE' }[codeOf(res)] || 'CHECKING';
 }
@@ -2472,14 +2478,34 @@ function waitingForRunResult(res) {
     return !res.mergedAt && chainRunning(res) && !res.blockers.length && !(res.watch || []).length;
 }
 
+// The server compared the failures with master. The page confirms this verdict is final and tested the PR's head.
+function masterOnlyVerdict(res) {
+    return res.onlyMasterFailures === true && !res.mergedAt && codeOf(res) === 'current' && verdictFinal(res)
+        && !['closed', 'replaced', 'cancelled', 'gone'].includes(phaseNow.reason);
+}
+
 // The verdict card's heading and the lines under it, by the standing: the words of the PR comment and the visa.
 // "✓ No blockers" is earned, not automatic: only a clean standing gets it, the one that gets ✓ in the PR list.
 function renderVerdictHead(res) {
     const standing = standingOf(res);
+    const master = masterOnlyVerdict(res);
     const kind = res.blockers.length ? 'blockers' : waitingForRunResult(res) ? 'checking'
         : standing === 'CLEAN' ? 'clean' : standing === 'CHECKING' ? 'checking'
-        : standing === 'WATCH' ? 'watch' : 'unproven';
-    for (const k of ['blockers', 'clean', 'checking', 'watch', 'unproven']) $('verdictCard').classList.toggle(k, k === kind);
+        : standing === 'WATCH' ? 'watch' : master ? 'master-known' : 'unproven';
+    for (const k of ['blockers', 'clean', 'checking', 'watch', 'unproven', 'master-known'])
+        $('verdictCard').classList.toggle(k, k === kind);
+    $('brokenCard').classList.toggle('blockers', !master);
+    $('brokenHead').textContent = master ? T('Suites with the same problem on master') : T('Broken suites');
+    $('brokenAdvice').classList.toggle('hidden', master);
+    if (master) {
+        $('verdictText').textContent = T('No blockers found');
+        $('verdictHelp').title = T('Master had the same kinds of failures. This run did not verify the affected suites.');
+        const n = res.brokenSuites.length;
+        const cause = n === 1 ? T('1 suite gave no result. Its latest analysed run on master had the same kind of failure.')
+            : T('{0} suites gave no result. Their latest analysed runs on master had the same kinds of failures.', n);
+        $('verdictLines').innerHTML = `<p>${esc(cause)}</p><p><strong>${esc(T('Nothing to fix or re-run for this PR.'))}</strong></p>`;
+        return;
+    }
     $('verdictText').textContent = verdictTitle(res, standing);
     $('verdictHelp').title = verdictExplanation(res, standing);
     const busy = waitingForRunResult(res) || standing === 'CHECKING' ? ' class="busy"' : '';
@@ -3156,6 +3182,7 @@ async function loadPending(res) {
         return;
     notePending(res, p || { pending: false, checked: false });
     renderVerdictHead(shown);
+    if (shown.onlyMasterFailures) paintRunActivity();
     syncListBadge();
     paintTab();
 }
