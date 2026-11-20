@@ -149,7 +149,7 @@ are listed apart as broken suites. The [glossary](docs/features.md#verdict-gloss
   calls are left, these checks do not ask GitHub. The checker's own work, such as PR commands, comments and visas,
   needs the rest. Without the token the options that write to GitHub are off. The checker checks the token at the start and every 6 hours, and the status page shows signed-in viewers
   what it found: whose token it is, whether it can write to the repo (a fine-grained token cannot, nor a classic one
-  without `public_repo`), whether it expires within 14 days or never expires (a warning for each), and whether the
+  without `public_repo`), whether it expires within 14 days (a warning) or never expires (OK), and whether the
   account can push to the repo or to the checker's own, where its releases come from. What GitHub does not say shows
   as unknown. Only operators see the day the token expires and how many days it has left.
 

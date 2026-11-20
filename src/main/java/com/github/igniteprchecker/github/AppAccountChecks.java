@@ -85,10 +85,8 @@ final class AppAccountChecks {
     }
 
     private static Check expiry(String header, long nowMs) {
-        if (header == null) {
-            return Check.warn("GITHUB_TOKEN does not expire: a copy of it works until you revoke it on GitHub — make "
-                + "a new one with an expiry, say 90 days");
-        }
+        if (header == null)
+            return Check.ok("GITHUB_TOKEN does not expire");
 
         String unreadable = "GitHub named an expiry of GITHUB_TOKEN the checker cannot read";
         Instant at = expiresAt(header);

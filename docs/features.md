@@ -861,7 +861,7 @@ GitHub account linked. There `/run-all` runs one client suite instead of RunAll:
   TeamCity or GitHub refuses their token, or a GitHub account or token is missing. A user who switched the option on
   after the last sweep also counts as paused until the next sweep. Without a `GITHUB_TOKEN`, all of them are paused.
 - The token is checked at the start and every 6 hours. A token that cannot write to the repo (a fine-grained one, or a
-  classic one without `public_repo`) turns the dot red; one that expires within 14 days or never expires, scopes
+  classic one without `public_repo`) turns the dot red; one that expires within 14 days, scopes
   beyond `public_repo`, and an account that can push to the repo or to the checker's own, where its releases come from,
   turn it amber. What GitHub does not say is shown as unknown, not as fine.
 - The **Standing options**, **PR commands** and **Tests added to suites** cards say when their job last started a
