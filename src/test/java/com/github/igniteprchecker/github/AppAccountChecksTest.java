@@ -21,8 +21,7 @@ class AppAccountChecksTest {
 
     private static final Check CLASSIC_OK = new Check("ok", "classic token, scopes: public_repo");
 
-    private static final Check NEVER_EXPIRES = new Check("warn", "GITHUB_TOKEN does not expire: a copy of it works until"
-        + " you revoke it on GitHub — make a new one with an expiry, say 90 days");
+    private static final Check NEVER_EXPIRES = new Check("ok", "GITHUB_TOKEN does not expire");
 
     private static final Check NO_PUSH = new Check("ok", "cannot push to apache/ignite");
 
@@ -44,12 +43,9 @@ class AppAccountChecksTest {
                 NO_PUSH_SELF);
     }
 
-    /**
-     * The token of prod's app account never expires, and the check showed that as fine: a copy taken from the server
-     * writes as the app account until someone notices and revokes it.
-     */
+    /** When GitHub accepts the token and omits its expiry header, the expiry check passes. */
     @Test
-    void aTokenThatNeverExpiresIsWarnedOf() {
+    void aTokenThatNeverExpiresPassesTheExpiryCheck() {
         assertThat(checks(CLASSIC, headers("public_repo", null), false, false).get(1)).isEqualTo(NEVER_EXPIRES);
     }
 

@@ -1461,7 +1461,7 @@
     "GITHUB_TOKEN lacks the public_repo scope (it has: {0}): no reply, reaction or story of the app account goes out": "у GITHUB_TOKEN нет scope public_repo (у него есть: {0:tr}): ни ответы, ни реакции, ни истории прогонов от аккаунта приложения не уходят",
     "GITHUB_TOKEN has scopes beyond public_repo ({0}): anyone who reads the server's token gets them too": "у GITHUB_TOKEN есть scope сверх public_repo ({0}): их получит и любой, кто прочитает токен сервера",
     "classic token, scopes: {0}": "classic токен, scope: {0}",
-    "GITHUB_TOKEN does not expire: a copy of it works until you revoke it on GitHub — make a new one with an expiry, say 90 days": "GITHUB_TOKEN бессрочный: его копия работает, пока ты не отзовёшь его на GitHub — сделай новый со сроком, например 90 дней",
+    "GITHUB_TOKEN does not expire": "GITHUB_TOKEN бессрочный",
     "GitHub named an expiry of GITHUB_TOKEN the checker cannot read": "GitHub назвал срок GITHUB_TOKEN, но чекер не может этот срок прочитать",
     "GitHub named an expiry of GITHUB_TOKEN the checker cannot read: {0}": "GitHub назвал срок GITHUB_TOKEN, но чекер не может этот срок прочитать: {0}",
     "expires on {0}, {1}": "истекает {0}, {1:tr}",
