@@ -34,7 +34,7 @@ jobs:
       pull-requests: read
     steps:
       - name: Download this run's checked JAR
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           artifact-ids: ${{ needs.checks.outputs.artifact-id }}
           path: deploy-jar
