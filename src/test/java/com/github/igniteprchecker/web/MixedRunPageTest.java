@@ -41,7 +41,7 @@ class MixedRunPageTest {
 
         assertThat(out.get("head").asText()).isEqualTo("No blockers found — not proven clean");
         assertThat(out.get("lines").asText())
-            .isEqualTo("This run can't prove the PR is clean: it is a mixed run (see the note at the top).");
+            .isEqualTo("it is a mixed run (see the note at the top)");
         assertThat(out.get("line").asText()).isEqualTo("⚠ Mixed run: Control Utility 5 re-ran on 9b02561, the PR's "
             + "head; the rest of the RunAll ran on c577b18. Only a RunAll of the PR's head can prove it clean.");
         assertThat(out.get("button").asBoolean()).as("Run RunAll").isTrue();
@@ -150,7 +150,7 @@ class MixedRunPageTest {
         assertThat(out.get("line").asText()).isEqualTo("⚠ The verdict is for older code: this run tested c577b18, and "
             + "the PR is now at 9b02561, 3 commits later.");
         assertThat(out.get("lines").asText())
-            .isEqualTo("This run can't prove the PR is clean: it tested older code (see the note at the top).");
+            .isEqualTo("it tested older code (see the note at the top)");
     }
 
     @Test
@@ -171,6 +171,6 @@ class MixedRunPageTest {
             + "9b02561 — последнем коммите PR; Queries 1 на 1a2b3c4; остальные сьюты RunAll прогнали на c577b18. "
             + "Доказать, что PR чист, может только RunAll последнего коммита PR.");
         assertThat(out.get("lines").asText())
-            .isEqualTo("Этот прогон не может доказать, что PR чист: это смешанный прогон (см. строку наверху).");
+            .isEqualTo("это смешанный прогон (см. строку наверху)");
     }
 }

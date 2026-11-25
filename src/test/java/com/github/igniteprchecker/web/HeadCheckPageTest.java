@@ -42,9 +42,7 @@ class HeadCheckPageTest {
             builtRevision: CLEAN.revision, caveat: 'new commits pushed since this run — it tested older code' };
         """;
 
-    private static final String CANT_PROVE = "This run can't prove the PR is clean: ";
-
-    private static final String OLDER_CODE = "it tested older code (see the note at the top).";
+    private static final String OLDER_CODE = "it tested older code (see the note at the top)";
 
     /**
      * {@code listed([[number, standing], …])} serves the PR list with these PRs, none with blockers, and returns, by
@@ -108,7 +106,7 @@ class HeadCheckPageTest {
             """);
 
         assertThat(out.get("head").asText()).isEqualTo("No blockers found — not proven clean");
-        assertThat(out.get("lines").asText()).isEqualTo(CANT_PROVE + OLDER_CODE);
+        assertThat(out.get("lines").asText()).isEqualTo(OLDER_CODE);
         assertThat(out.get("pushed").asText()).isEqualTo("⚠ The verdict is for older code: this run tested 1f93640, and "
             + "the PR is now at 6573622, 33 commits later.");
         assertThat(out.get("title").asText()).startsWith("⚠ not proven clean");
@@ -133,7 +131,7 @@ class HeadCheckPageTest {
             assertThat(out.get("head").asText()).as(failure).isEqualTo("No blockers found — not proven clean");
             assertThat(out.get("clean").asBoolean()).as(failure).isFalse();
             assertThat(out.get("lines").asText()).as(failure)
-                .isEqualTo(CANT_PROVE + "could not check whether the PR changed since this run.");
+                .isEqualTo("could not check whether the PR changed since this run");
             assertThat(out.get("pushed").isNull()).as(failure).isTrue();
             assertThat(out.get("title").asText()).as(failure).startsWith("⚠ not proven clean");
         }
@@ -154,13 +152,13 @@ class HeadCheckPageTest {
 
         JsonNode first = out.get("first");
         assertThat(first.get("head").asText()).isEqualTo("No blockers found — not proven clean");
-        assertThat(first.get("lines").asText()).isEqualTo(CANT_PROVE + OLDER_CODE);
+        assertThat(first.get("lines").asText()).isEqualTo(OLDER_CODE);
         assertThat(first.get("pushed").asText()).as("the count is not known yet")
             .isEqualTo("⚠ The verdict is for older code: this run tested 1f93640, and the PR is now at 6573622.");
         assertThat(first.get("title").asText()).startsWith("⚠ not proven clean");
 
         JsonNode counted = out.get("counted");
-        assertThat(counted.get("lines").asText()).isEqualTo(CANT_PROVE + OLDER_CODE);
+        assertThat(counted.get("lines").asText()).isEqualTo(OLDER_CODE);
         assertThat(counted.get("pushed").asText()).endsWith("the PR is now at 6573622, 33 commits later.");
     }
 
@@ -176,7 +174,7 @@ class HeadCheckPageTest {
             report(state());
             """);
 
-        assertThat(out.get("lines").asText()).isEqualTo(CANT_PROVE + OLDER_CODE);
+        assertThat(out.get("lines").asText()).isEqualTo(OLDER_CODE);
         assertThat(out.get("pushed").asText()).isEqualTo("⚠ The verdict is for older code: this run tested 1f93640, and "
             + "the PR is now at 6573622.");
     }
@@ -195,7 +193,7 @@ class HeadCheckPageTest {
             report(state());
             """);
 
-        assertThat(out.get("lines").asText()).isEqualTo(CANT_PROVE + OLDER_CODE);
+        assertThat(out.get("lines").asText()).isEqualTo(OLDER_CODE);
         assertThat(out.get("pushed").asText()).endsWith("the PR is now at 6573622, 33 commits later.");
     }
 

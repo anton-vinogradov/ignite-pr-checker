@@ -109,6 +109,7 @@ class RussianPageTest {
             const html = ['freshText', 'freshMore', 'runs', 'steps', 'stepPanel', 'brokenSuites', 'shrunkSuites',
                 'blockers', 'watch', 'filtered', 'delta'].map(id => page.el(id).innerHTML).join('\\n');
             report({ texts: Object.fromEntries(ids.map(id => [id, text(id)])), html,
+                verdict: page.el('verdictLines').innerHTML,
                 lang: page.run('document.documentElement.getAttribute("lang")'), tab: page.run('document.title') });
             """);
 
@@ -116,8 +117,10 @@ class RussianPageTest {
         assertThat(untranslated(texts, out.get("html").asText())).isEmpty();
         assertThat(texts.get("verdictText").asText()).isEqualTo("2 блокера в 2 сьютах, из них 1 на 1 прогоне");
         assertThat(texts.get("filteredCount").asText()).isEqualTo("(1 сьюта, 3 теста)");
-        assertThat(texts.get("verdictLines").asText()).startsWith("Этот прогон покрывает PR не полностью: у 64 сьют нет "
-            + "надёжного результата (60× сбой ci2: артефакты недоступны;");
+        assertThat(out.get("verdict").asText()).isEqualTo("<p>Прогон проверил PR лишь частично.</p>"
+            + "<ul class=\"verdict-reasons\"><li>у 64 сьют нет надёжного результата (60× сбой ci2: артефакты недоступны; "
+            + "2× ненулевой код выхода; таймаут выполнения; …)</li>"
+            + "<li>он тестировал старый код (см. строку наверху)</li></ul>");
         assertThat(texts.get("settling").asText())
             .isEqualTo("Предварительный вердикт — дождись обновлённого результата.");
         assertThat(texts.get("steps").asText())

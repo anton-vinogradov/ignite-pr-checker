@@ -2508,8 +2508,7 @@ function renderVerdictHead(res) {
     }
     $('verdictText').textContent = verdictTitle(res, standing);
     $('verdictHelp').title = verdictExplanation(res, standing);
-    const busy = waitingForRunResult(res) || standing === 'CHECKING' ? ' class="busy"' : '';
-    $('verdictLines').innerHTML = verdictLines(res, standing).map(line => `<p${busy}>${esc(line)}</p>`).join('');
+    $('verdictLines').innerHTML = verdictDetails(res, standing);
 }
 
 function verdictExplanation(res, standing) {
@@ -2567,26 +2566,32 @@ function onOneRun(blockers) {
     return k === 0 ? '' : k === blockers.length ? T(', all on 1 run') : T`, ${k} of them on 1 run`;
 }
 
-function verdictLines(res, standing) {
-    const caveats = caveatsOf(res, standing);
-    const listed = caveats.join('; ') + '.';
-    if (waitingForRunResult(res)) return [caveats.length ? T`Waiting for results: ${listed}`
-        : T('Wait for the run to finish to get a result.')];
-    if (res.blockers.length) return caveats.length ? [T`This run doesn't cover the PR fully: ${listed}`] : [];
-    if (standing === 'CHECKING') return [T('Checking that this run tested the PR\'s latest commit…')];
-    if (standing === 'CLEAN')
-        return [T('Nothing in this run looks caused by your PR. You don\'t need to fix or re-run anything.')];
-    if (standing === 'WATCH') {
-        const n = (res.watch || []).length;
-        const next = res.mergedAt ? '' : res.repo
-            ? ' ' + T('A new run shows whether these tests are blockers, if this PR\'s head and Ignite master are still at '
-                + 'the same commits.')
-            : ' ' + T('Re-run their suites under “Recently started failing”: the re-run shows whether these tests are '
-                + 'blockers.');
-        return [T`${n} test${n === 1 ? '' : 's'} started failing on the code this run tested.` + next]
-            .concat(caveats.length ? [T`This run also can't prove the PR is clean: ${listed}`] : []);
+function verdictDetails(res, standing) {
+    const paragraph = (text, busy = false) => text ? `<p${busy ? ' class="busy"' : ''}>${esc(text)}</p>` : '';
+    const reasons = caveatsOf(res, standing);
+    const waiting = waitingForRunResult(res);
+    let lead = '', next = '';
+    if (waiting)
+        lead = T('Wait for the run to finish to get a result.');
+    else if (res.blockers.length) {
+        if (reasons.length) lead = T('This run doesn\'t cover the PR fully.');
     }
-    return caveats.length ? [T`This run can't prove the PR is clean: ${listed}`] : [];
+    else if (standing === 'CHECKING')
+        return paragraph(T('Checking that this run tested the PR\'s latest commit…'), true);
+    else if (standing === 'CLEAN')
+        return paragraph(T('Nothing in this run looks caused by your PR. You don\'t need to fix or re-run anything.'));
+    else if (standing === 'WATCH') {
+        const n = (res.watch || []).length;
+        reasons.unshift(T`${n} test${n === 1 ? '' : 's'} started failing on the code this run tested.`);
+        next = res.mergedAt ? '' : res.repo
+            ? T('A new run shows whether these tests are blockers, if this PR\'s head and Ignite master are still at '
+                + 'the same commits.')
+            : T('Re-run their suites under “Recently started failing”: the re-run shows whether these tests are '
+                + 'blockers.');
+    }
+    const items = reasons.map(reason => `<li>${esc(reason)}</li>`).join('');
+    const list = items ? `<ul class="verdict-reasons">${items}</ul>` : '';
+    return paragraph(lead, waiting) + list + paragraph(next);
 }
 
 // Whether the analysed run tested the PR's head, as /api/pending last said for it, or as the analysis did when the
