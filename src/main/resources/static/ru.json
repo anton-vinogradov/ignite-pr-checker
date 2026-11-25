@@ -235,14 +235,12 @@
     "{0} blocker{1} in {2} suite{3}": "{0} {0|блокер|блокера|блокеров} в {2} {2|сьюте|сьютах|сьютах}",
     ", all on 1 run": ", все на 1 прогоне",
     ", {0} of them on 1 run": ", из них {0} на 1 прогоне",
-    "This run doesn't cover the PR fully: {0}": "Этот прогон покрывает PR не полностью: {0}",
+    "This run doesn't cover the PR fully.": "Прогон проверил PR лишь частично.",
     "Checking that this run tested the PR's latest commit…": "Проверяю, тестировал ли этот прогон последний коммит PR…",
     "Nothing in this run looks caused by your PR. You don't need to fix or re-run anything.": "В этом прогоне ничего не похоже на последствия твоего PR. Ничего чинить или перезапускать не нужно.",
     "{0} test{1} started failing on the code this run tested.": "На коде, который проверял этот прогон, {0} {0|тест начал|теста начали|тестов начали} падать.",
     "Re-run their suites under “Recently started failing”: the re-run shows whether these tests are blockers.": "Перезапусти их сьюты в карточке «Недавно начали падать»: перезапуск покажет, блокеры ли эти тесты.",
     "A new run shows whether these tests are blockers, if this PR's head and Ignite master are still at the same commits.": "Новый прогон покажет, блокеры ли эти тесты, если последний коммит этого PR и master проекта Ignite всё ещё те же.",
-    "This run also can't prove the PR is clean: {0}": "Кроме того, этот прогон не может доказать, что PR чист: {0}",
-    "This run can't prove the PR is clean: {0}": "Этот прогон не может доказать, что PR чист: {0}",
     "it tested older code (see the note at the top)": "он тестировал старый код (см. строку наверху)",
     "it is a mixed run (see the note at the top)": "это смешанный прогон (см. строку наверху)",
     "could not check whether the PR changed since this run": "не удалось проверить, менялся ли PR после этого прогона",
@@ -277,7 +275,6 @@
     "Open their failures and fix confirmed blockers.": "Открой ошибки и исправь подтверждённые блокеры.",
     "Run in progress — waiting for results": "Прогон ещё идёт — ждём результат",
     "This run has not finished. Wait for its results before judging this PR.": "Этот прогон ещё не завершён. Дождись его результатов, прежде чем оценивать PR.",
-    "Waiting for results: {0}": "Ожидаем результат: {0}",
     "Wait for the run to finish to get a result.": "Чтобы получить результат, дождись завершения прогона."
   },
   "cards": {

@@ -32,8 +32,7 @@ class BrokenGroupsPageTest {
         assertThat(out.get("sectionSuites").toString()).isEqualTo("[\"" + BrokenRuns.BUILD + "\"]");
         assertThat(out.get("bannerHidden").asBoolean()).as("the 137 suites the Build kept from running").isTrue();
         assertThat(out.get("sectionRerunHidden").asBoolean()).isFalse();
-        assertThat(out.get("caveat").asText()).isEqualTo("This run can't prove the PR is clean: Build failed — nothing "
-            + "else ran.");
+        assertThat(out.get("caveat").asText()).isEqualTo("Build failed — nothing else ran");
         assertThat(out.get("advice").asText()).isEqualTo("The verdict above can't see their tests. Check master before rerunning.");
     }
 
@@ -94,8 +93,8 @@ class BrokenGroupsPageTest {
         assertThat(out.get("html").asText()).doesNotContain("<[Apache").contains("&lt;[Apache Ignite 2.x / Tests]")
             .contains("title=\"Queues the 60 suites of this group on ci2. Their results join the verdict when they "
                 + "finish.\">Rerun 60 suites</button>");
-        assertThat(out.get("caveat").asText()).isEqualTo("This run can't prove the PR is clean: 64 suites have no "
-            + "reliable result (60× ci2 glitch: artifacts unavailable; 2× non-zero exit code; execution timeout; …).");
+        assertThat(out.get("caveat").asText()).isEqualTo("64 suites have no reliable result (60× ci2 glitch: "
+            + "artifacts unavailable; 2× non-zero exit code; execution timeout; …)");
     }
 
     /**
@@ -141,8 +140,8 @@ class BrokenGroupsPageTest {
             .containsSubsequence("ran fewer tests than on master", "2 suites", "Machine Learning",
                 "ran 12 of master's 35 tests", "Cache 5", "ran 30 of master's 80 tests")
             .doesNotContain("ran N");
-        assertThat(out.get("caveat").asText()).isEqualTo("This run can't prove the PR is clean: 2 suites have no "
-            + "reliable result (2× ran fewer tests than on master).");
+        assertThat(out.get("caveat").asText())
+            .isEqualTo("2 suites have no reliable result (2× ran fewer tests than on master)");
     }
 
     /** A problem's text comes from the build log, which the PR's code can write to. */

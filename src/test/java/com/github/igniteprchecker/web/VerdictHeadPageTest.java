@@ -80,13 +80,13 @@ class VerdictHeadPageTest {
                 liveBuildId: 9001, suitesRan, suitesReused: 0, finishedAt: 0,
                 caveats: ['this run is still going — its unfinished suites can still fail'] }) });
             await page.load('?pr=13575');
-            report({ head: page.el('verdictText').textContent, lines: page.el('verdictLines').textContent,
+            report({ head: page.el('verdictText').textContent, html: page.el('verdictLines').innerHTML,
                 help: page.el('verdictHelp').title, checking: page.el('verdictCard').classList.contains('checking') });
             """);
 
         assertThat(out.get("head").asText()).isEqualTo("Run in progress — waiting for results");
-        assertThat(out.get("lines").asText()).isEqualTo("Waiting for results: this run is still going — its "
-            + "unfinished suites can still fail.");
+        assertThat(out.get("html").asText()).isEqualTo("<p class=\"busy\">Wait for the run to finish to get a result.</p>"
+            + "<ul class=\"verdict-reasons\"><li>this run is still going — its unfinished suites can still fail</li></ul>");
         assertThat(out.get("help").asText()).contains("has not finished", "Wait for its results")
             .doesNotContain("No blockers", "No failures");
         assertThat(out.get("checking").asBoolean()).isTrue();
@@ -121,7 +121,8 @@ class VerdictHeadPageTest {
 
     private static final String HEAD = """
         report({ head: page.el('verdictText').textContent, clean: page.el('verdictCard').classList.contains('clean'),
-            lines: page.el('verdictLines').textContent, title: page.run('document').title });
+            lines: page.el('verdictLines').textContent, html: page.el('verdictLines').innerHTML,
+            title: page.run('document').title });
         """;
 
     @Test
@@ -143,14 +144,16 @@ class VerdictHeadPageTest {
     void theHeadFollowsTheServersStanding() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             page.route('/api/analyze', { body: verdict({ blockers: [], standing: 'UNPROVEN',
-                caveats: ['1 suite has no reliable result (compilation error, timeout, crash)'] }) });
+                caveats: ['2 suites have no reliable result (compilation error; execution timeout)',
+                    '1 failed test could not be checked (TeamCity errors)'] }) });
             await page.load('?pr=13575');
             """ + HEAD);
 
         assertThat(out.get("head").asText()).isEqualTo("No blockers found — not proven clean");
         assertThat(out.get("clean").asBoolean()).isFalse();
-        assertThat(out.get("lines").asText()).isEqualTo("This run can't prove the PR is clean: 1 suite has no "
-            + "reliable result (compilation error, timeout, crash).");
+        assertThat(out.get("html").asText()).isEqualTo("<ul class=\"verdict-reasons\">"
+            + "<li>2 suites have no reliable result (compilation error; execution timeout)</li>"
+            + "<li>1 failed test could not be checked (TeamCity errors)</li></ul>");
         assertThat(out.get("title").asText()).startsWith("⚠ not proven clean");
     }
 
@@ -165,8 +168,10 @@ class VerdictHeadPageTest {
 
         assertThat(out.get("head").asText()).isEqualTo("No proven blockers yet");
         assertThat(out.get("clean").asBoolean()).isFalse();
-        assertThat(out.get("lines").asText()).isEqualTo("1 test started failing on the code this run tested. Re-run "
-            + "their suites under “Recently started failing”: the re-run shows whether these tests are blockers.");
+        assertThat(out.get("html").asText()).isEqualTo("<ul class=\"verdict-reasons\">"
+            + "<li>1 test started failing on the code this run tested.</li></ul>"
+            + "<p>Re-run their suites under “Recently started failing”: the re-run shows whether these tests "
+            + "are blockers.</p>");
         assertThat(out.get("title").asText()).startsWith("⚠ started failing");
     }
 
@@ -183,7 +188,7 @@ class VerdictHeadPageTest {
         assertThat(out.get("head").asText()).isEqualTo("No blockers found — not proven clean");
         assertThat(out.get("clean").asBoolean()).isFalse();
         assertThat(out.get("lines").asText())
-            .isEqualTo("This run can't prove the PR is clean: it tested older code (see the note at the top).");
+            .isEqualTo("it tested older code (see the note at the top)");
     }
 
     /** Tests that started failing on code the PR has moved past: both said, each once. */
@@ -199,9 +204,11 @@ class VerdictHeadPageTest {
             """ + HEAD);
 
         assertThat(out.get("head").asText()).isEqualTo("No proven blockers yet");
-        assertThat(out.get("lines").asText()).isEqualTo("2 tests started failing on the code this run tested. Re-run "
-            + "their suites under “Recently started failing”: the re-run shows whether these tests are blockers."
-            + "This run also can't prove the PR is clean: it tested older code (see the note at the top).");
+        assertThat(out.get("html").asText()).isEqualTo("<ul class=\"verdict-reasons\">"
+            + "<li>2 tests started failing on the code this run tested.</li>"
+            + "<li>it tested older code (see the note at the top)</li></ul>"
+            + "<p>Re-run their suites under “Recently started failing”: the re-run shows whether these tests "
+            + "are blockers.</p>");
     }
 
     /** With blockers, the caveats are said too, as the PR comment says them. */
@@ -214,8 +221,8 @@ class VerdictHeadPageTest {
             """ + HEAD);
 
         assertThat(out.get("head").asText()).isEqualTo("1 blocker in 1 suite");
-        assertThat(out.get("lines").asText())
-            .isEqualTo("This run doesn't cover the PR fully: the RunAll was interrupted — 3 suites never ran.");
+        assertThat(out.get("html").asText()).isEqualTo("<p>This run doesn&#39;t cover the PR fully.</p>"
+            + "<ul class=\"verdict-reasons\"><li>the RunAll was interrupted — 3 suites never ran</li></ul>");
         assertThat(out.get("title").asText()).startsWith("❌ 1 blocker");
     }
 }

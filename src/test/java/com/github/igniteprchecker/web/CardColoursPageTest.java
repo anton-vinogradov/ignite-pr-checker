@@ -49,6 +49,21 @@ class CardColoursPageTest {
         }
     }
 
+    @Test
+    void warningColourMarksTheVerdictAndItsReasons() throws Exception {
+        Map<String, Map<String, String>> colours = colours();
+
+        for (String theme : THEMES) {
+            Map<String, String> of = colours.get(theme);
+            String warning = of.get(".card.verdict.unproven h2");
+            String foreground = of.get(".card.verdict");
+            assertThat(of.get(".verdict-reasons")).as(theme).isNotNull().isEqualTo(warning).isNotEqualTo(foreground);
+            assertThat(of.get(".pending-note b")).as(theme).isEqualTo(warning);
+            assertThat(of.get(".verdict-lines p")).as(theme).isEqualTo(foreground);
+            assertThat(of.get(".pending-note")).as(theme).isEqualTo(foreground);
+        }
+    }
+
     /** The text colour of every element the page's rules name, by theme and element. */
     private static Map<String, Map<String, String>> colours() throws Exception {
         ProcessBuilder pb = new ProcessBuilder("node", SCRIPT.toString(), PAGE.toString()).redirectErrorStream(true);

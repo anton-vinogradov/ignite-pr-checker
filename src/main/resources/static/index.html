@@ -174,10 +174,11 @@
         .dialog-acts .act { font-size: 0.85rem; padding: 0.25rem 0.9rem; }
         #notifyBtn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); opacity: 1; }
         #notifyBtn[aria-pressed="true"]:focus-visible { outline-color: var(--on-accent); outline-offset: -3px; }
-        .verdict-lines { font-size: 0.86rem; color: var(--warn); }
+        .verdict-lines { font-size: 0.86rem; color: var(--fg); }
         .verdict-lines p { margin: 0 0 0.3rem; }
         .card.verdict.clean .verdict-lines, .card.verdict.checking .verdict-lines { color: var(--muted); }
-        .card.verdict.master-known .verdict-lines { color: var(--fg); }
+        .verdict-reasons { margin: 0 0 0.45rem; padding-inline-start: 1.2rem; color: var(--warn); }
+        .verdict-reasons li + li { margin-top: 0.25rem; }
         .delta { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem 0.5rem; margin-top: 0.4rem; font-size: 0.85rem; color: var(--muted); }
         /* On a phone the bars wrap. Without the gap a bar would touch the one above it and read as one taller bar. */
         .trend { display: inline-flex; flex-wrap: wrap; row-gap: 4px; align-items: flex-end; vertical-align: middle; }
@@ -207,8 +208,8 @@
         /* Run RunAll follows the text of the older-code line, not the far edge of the row. */
         .pending-row { display: block; }
         .pending-row .act { margin-left: 0.4rem; vertical-align: baseline; }
-        .pending-note { color: var(--warn); font-size: 0.9rem; }
-        .pending-note b { font-weight: 600; }
+        .pending-note { font-size: 0.9rem; }
+        .pending-note b { color: var(--warn); font-weight: 600; }
         /* The run as four steps. The line after a step is filled once the step is done. */
         .steps { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); max-width: 56rem; margin: 0.7rem 0 0.5rem; padding: 0; }
         .step { position: relative; padding-right: 0.8rem; font-size: 0.82rem; color: var(--muted); }
